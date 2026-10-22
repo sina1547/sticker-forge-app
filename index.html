@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Sticker Forge</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root { --bg: var(--tg-theme-bg-color, #ffffff); --fg: var(--tg-theme-text-color, #111111);
+          --hint: var(--tg-theme-hint-color, #7d7d85); --card: var(--tg-theme-secondary-bg-color, #f1f1f4);
+          --btn: var(--tg-theme-button-color, #2481cc); --btn-fg: var(--tg-theme-button-text-color, #ffffff); --ok: #2e9e55; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif; padding-bottom: 90px; }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px 4px; }
+  header h1 { font-size: 17px; margin: 0; }
+  .lang { background: var(--card); color: var(--fg); border: 0; border-radius: 14px; padding: 5px 12px; font-size: 13px; }
+  .stage { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 6px 14px 10px; text-align: center; }
+  canvas { width: min(100%, 300px); aspect-ratio: 1; border-radius: 16px; touch-action: none; display: block; margin: 0 auto;
+           background: repeating-conic-gradient(#d9d9de 0% 25%, #f4f4f7 0% 50%) 50% / 24px 24px; }
+  .hint { color: var(--hint); font-size: 12px; margin-top: 6px; }
+  .row { display: flex; gap: 8px; justify-content: center; margin-top: 8px; flex-wrap: wrap; }
+  .card { background: var(--card); border-radius: 14px; padding: 12px; margin: 10px 14px; }
+  .card h2 { font-size: 13px; margin: 0 0 8px; color: var(--hint); font-weight: 600; letter-spacing: .02em; }
+  .chips { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .chip, .seg button, .btn, .sw { border: 0; font: inherit; color: var(--fg); background: var(--bg); border-radius: 10px; padding: 8px 4px; }
+  .chip.on, .seg button.on, .sw.on { background: var(--btn); color: var(--btn-fg); }
+  .seg { display: flex; gap: 6px; } .seg button { flex: 1; }
+  .sw { width: 34px; height: 34px; padding: 0; border: 3px solid var(--bg); } .sw.on { border-color: var(--btn); }
+  .swatches { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  label.field { display: block; margin-top: 10px; font-size: 13px; color: var(--hint); }
+  select, input[type=text] { width: 100%; margin-top: 4px; padding: 9px; border: 0; border-radius: 10px; background: var(--bg); color: var(--fg); font: inherit; }
+  .btn { background: var(--btn); color: var(--btn-fg); padding: 9px 14px; }
+  .btn.alt { background: var(--bg); color: var(--fg); }
+  details summary { cursor: pointer; font-weight: 600; color: var(--hint); font-size: 13px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .toggle { display: flex; justify-content: space-between; align-items: center; }
+  .note { color: var(--hint); font-size: 12px; margin-top: 6px; }
+  #sendFallback { position: fixed; bottom: 0; left: 0; right: 0; padding: 12px 14px calc(12px + env(safe-area-inset-bottom)); background: var(--bg); display: none; }
+  #sendFallback button { width: 100%; padding: 13px; font-size: 16px; }
+  [dir=rtl] .seg, [dir=rtl] .chips { direction: rtl; }
+</style>
+</head>
+<body>
+<header><h1 id="title">Sticker Forge</h1><button class="lang" id="langBtn">فارسی</button></header>
+
+<div class="stage">
+  <canvas id="cv" width="512" height="512"></canvas>
+  <div class="hint" id="dragHint"></div>
+  <div class="row">
+    <label class="btn alt" id="pickLbl"><input type="file" id="file" accept="image/*" hidden><span id="pickTxt"></span></label>
+    <button class="btn alt" id="demoBtn"></button>
+  </div>
+</div>
+
+<div class="card"><h2 id="h_fx"></h2><div class="chips" id="chips"></div>
+  <div class="grid2"><label class="field"><span id="l_fx2"></span><select id="fx2"></select></label>
+  <label class="field"><span id="l_fx3"></span><select id="fx3"></select></label></div></div>
+
+<div class="card"><h2 id="h_motion"></h2><div class="seg" id="speed"></div><div class="seg" id="intensity" style="margin-top:8px"></div></div>
+<div class="card"><h2 id="h_outline"></h2><div class="seg" id="outline"></div></div>
+
+<div class="card"><h2 id="h_text"></h2>
+  <input type="text" id="text" maxlength="28" autocomplete="off">
+  <label class="field"><span id="l_size"></span></label><div class="seg" id="tsize"></div>
+  <div class="swatches" id="colors"></div>
+  <label class="field" id="fontWrap" style="display:none"><span id="l_font"></span><select id="font"></select></label>
+  <label class="field"><span id="l_pos"></span></label><div class="seg" id="tpos"></div>
+  <div class="note" id="posNote"></div>
+</div>
+
+<div class="card"><div class="toggle"><span id="l_bg"></span><div class="seg" id="bg" style="width:140px"></div></div>
+  <div class="note" id="bgNote"></div></div>
+
+<div class="card"><details><summary id="h_img"></summary>
+  <div class="note" id="imgNote"></div>
+  <label class="field"><span id="l_colors"></span></label><div class="seg" id="i_colors"></div>
+  <label class="field"><span id="l_detail"></span></label><div class="seg" id="i_detail"></div>
+  <label class="field"><span id="l_speckle"></span></label><div class="seg" id="i_speckle"></div>
+  <label class="field"><span id="l_denoise"></span></label><div class="seg" id="i_denoise"></div>
+  <label class="field"><span id="l_tol"></span></label><div class="seg" id="i_tol"></div>
+</details></div>
+
+<div class="card"><h2 id="h_fmt"></h2><div class="seg" id="fmt"></div><div class="note" id="fmtNote"></div></div>
+
+<div id="sendFallback"><button class="btn" id="sendBtn"></button></div>
+
+<script id="effects">
+
+const SF = (function () {
+  "use strict";
+  const TAU = Math.PI * 2, CANVAS = 512;
+  const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+  const T = o => Object.assign({ dx: 0, dy: 0, sx: 1, sy: 1, rot: 0, opacity: 1 }, o);
+  const win = (q, a, b) => (q < a || q > b) ? 0 : Math.pow(Math.sin(Math.PI * (q - a) / (b - a)), 2);
+  const easeOutBack = x => { const c1 = 1.70158, c3 = c1 + 1; x = clamp(x, 0, 1); return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); };
+  const smooth = x => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+  const LABELS = {"pulse": ["Pulse", "ضربان"], "bounce": ["Bounce", "پرش"], "shake": ["Shake", "لرزش"], "spin": ["Spin", "چرخش"], "fade": ["Fade", "محو شدن"], "float": ["Float", "شناور"], "heartbeat": ["Heartbeat", "تپش قلب"], "swing": ["Swing", "تاب"], "wobble": ["Wobble", "نوسان"], "jelly": ["Jelly", "ژله‌ای"], "tada": ["Tada", "تادا"], "hop": ["Hop", "جهش"], "orbit": ["Orbit", "مدار"], "flip": ["Flip", "چرخش سکه"], "zoompop": ["Zoom Pop", "ظهور"], "breathe": ["Breathe", "نفس"]};
+  // Same formulas as engine/animation.py (checked against it by tests/test_miniapp.py).
+  const defs = [
+    ["pulse", p => { const k = .5 - .5 * Math.cos(TAU * p), s = 1 + .12 * k; return T({ sx: s, sy: s }); }],
+    ["bounce", p => { const h = Math.abs(Math.sin(Math.PI * p)), sq = Math.pow(1 - h, 3); return T({ dy: -48 * h, sx: 1 + .06 * sq, sy: 1 - .10 * sq }); }],
+    ["shake", p => T({ dx: 18 * Math.sin(TAU * 4 * p), rot: 4 * Math.sin(TAU * 4 * p + Math.PI / 3) - 4 * Math.sin(Math.PI / 3) })],
+    ["spin", p => T({ rot: 360 * p }), false],
+    ["fade", p => T({ opacity: .15 + .85 * (.5 + .5 * Math.cos(TAU * p)) })],
+    ["float", p => T({ dx: 5 * Math.sin(TAU * 2 * p), dy: -14 * Math.sin(TAU * p), rot: 2 * Math.sin(TAU * p + Math.PI / 2) - 2 })],
+    ["heartbeat", p => { let q = (p * 2) % 1; if (p >= 1) q = 0; const s = 1 + .16 * win(q, 0, .16) + .11 * win(q, .18, .36); return T({ sx: s, sy: s }); }],
+    ["swing", p => { const th = 14 * Math.sin(TAU * 2 * p), r = th * Math.PI / 180; return T({ dx: -200 * Math.sin(r), dy: 200 * (Math.cos(r) - 1), rot: th }); }],
+    ["wobble", p => { const a = Math.sin(TAU * 3 * p), b = Math.sin(TAU * 3 * p + Math.PI / 2); return T({ rot: 7 * a, sx: 1 + .04 * b, sy: 1 - .04 * b }); }],
+    ["jelly", p => { let q = (p * 2) % 1; if (p >= 1) q = 0; const env = Math.exp(-4 * q) * Math.sin(TAU * 3 * q); return T({ sx: 1 + .2 * env, sy: 1 - .2 * env }); }],
+    ["tada", p => { const q = Math.min(p, 1) / .6; if (q >= 1) return T({}); const env = Math.sin(Math.PI * q), s = 1 + .1 * env; return T({ sx: s, sy: s, rot: 7 * env * Math.sin(TAU * 4 * q) }); }],
+    ["hop", p => { let q = (p * 3) % 1; if (p >= 1) q = 0; const h = Math.sin(Math.PI * q), sq = Math.pow(1 - h, 6); return T({ dx: 24 * Math.sin(TAU * p), dy: -36 * h, sx: 1 + .07 * sq - .03 * h, sy: 1 - .10 * sq + .04 * h, rot: 5 * Math.sin(TAU * p) }); }],
+    ["orbit", p => T({ dx: 22 * Math.cos(TAU * p) - 22, dy: 22 * Math.sin(TAU * p) })],
+    ["flip", p => { const sx = Math.max(.03, Math.abs(Math.cos(TAU * p))); return T({ sx: sx, sy: 1 + .04 * (1 - sx) }); }],
+    ["zoompop", p => { p = clamp(p, 0, 1); let s, o; if (p < .28) { s = .3 + .7 * easeOutBack(p / .28); o = smooth(p / .12); } else if (p < .8) { s = 1; o = 1; } else { const k = smooth((p - .8) / .2); s = 1 - .7 * k; o = 1 - k; } return T({ sx: s, sy: s, opacity: clamp(o, 0, 1) }); }],
+    ["breathe", p => { const k = .5 - .5 * Math.cos(TAU * p), s = 1 + .06 * k; return T({ dy: -6 * k, sx: s, sy: s, opacity: .85 + .15 * k }); }],
+  ];
+  const EFFECTS = defs.map(d => ({ key: d[0], fn: d[1], rotScales: d[2] !== false, en: LABELS[d[0]][0], fa: LABELS[d[0]][1] }));
+  const BY_KEY = Object.fromEntries(EFFECTS.map(e => [e.key, e]));
+  const SPEEDS = { slow: 3.0, normal: 2.0, fast: 1.0 };
+  const INTENSITIES = { low: .6, normal: 1.0, high: 1.5 };
+  const SIZES = { small: 34, medium: 52, large: 72, xlarge: 104 };
+  const COLORS = { white: [255, 255, 255], yellow: [255, 214, 0], red: [244, 67, 54], green: [76, 175, 80],
+                   blue: [33, 150, 243], pink: [255, 105, 180], orange: [255, 152, 0], black: [20, 20, 24] };
+  const BAND = 112, OUTLINE_PAD = 12, OUTLINE_WIDTH = 7, SHADOW_OFFSET = [3, 6], BOX_W = CANVAS - 32, BOX_FREE_H = 220;
+
+  function effectKeys(o) {
+    const keys = [];
+    for (const k of [o.effect, o.fx2, o.fx3]) if (k && BY_KEY[k] && keys.indexOf(k) < 0) keys.push(k);
+    return keys;
+  }
+  /** -> {fn(phase)->Transform, duration} for the user's choices (mirrors build_effect / Composite). */
+  function build(o) {
+    const keys = effectKeys(o), k = INTENSITIES[o.intensity] || 1, duration = SPEEDS[o.speed] || 2;
+    const parts = keys.map(x => BY_KEY[x]);
+    const fn = p => {
+      let dx = 0, dy = 0, rot = 0, sx = 1, sy = 1, op = 1;
+      for (const e of parts) {
+        const t = e.fn(p), rk = e.rotScales ? k : 1;
+        dx += t.dx * k; dy += t.dy * k; rot += t.rot * rk;
+        sx *= 1 + (t.sx - 1) * k; sy *= 1 + (t.sy - 1) * k; op *= 1 - (1 - t.opacity) * k;
+      }
+      return { dx, dy, rot, sx: Math.max(.03, sx), sy: Math.max(.03, sy), opacity: clamp(op, 0, 1) };
+    };
+    return { fn, duration };
+  }
+  function safeScale(fn, w, h, samples) {
+    samples = samples || 240;
+    const hw = w / 2, hh = h / 2, corners = [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]];
+    const limit = CANVAS / 2 - 1; let best = 1;
+    for (let i = 0; i <= samples; i++) {
+      const t = fn(i / samples), th = t.rot * Math.PI / 180, c = Math.cos(th), s = Math.sin(th);
+      for (const [px, py] of corners) {
+        const ux = t.sx * px * c - t.sy * py * s, uy = t.sx * px * s + t.sy * py * c;
+        for (const [u, d] of [[ux, t.dx], [uy, t.dy]]) {
+          if (u > 1e-9) best = Math.min(best, (limit - d) / u);
+          else if (u < -1e-9) best = Math.min(best, (-limit - d) / u);
+        }
+      }
+    }
+    return Math.max(.05, Math.min(1, best));
+  }
+  const needsRoom = o => !!o.text || o.outline !== "none";
+  const band = o => (o.text && (o.text_pos === "top" || o.text_pos === "bottom")) ? BAND : 0;
+  function artworkScale(o) {
+    const pad = o.outline !== "none" ? OUTLINE_PAD : 0, b = band(o);
+    const f = Math.min((CANVAS - 2 * pad) / CANVAS, (CANVAS - b - 2 * pad) / CANVAS);
+    const cy = (o.text_pos === "top" && b) ? (CANVAS + b) / 2 : (CANVAS - b) / 2;
+    return { f, cy };
+  }
+  function textCentre(o) {
+    if (o.text_pos === "custom") return [o.text_x, o.text_y];
+    if (o.text_pos === "top") return [CANVAS / 2, BAND / 2];
+    if (o.text_pos === "center") return [CANVAS / 2, CANVAS / 2];
+    return [CANVAS / 2, CANVAS - BAND / 2];
+  }
+  const captionBox = o => (o.text_pos === "top" || o.text_pos === "bottom") ? [BOX_W, BAND - 8] : [BOX_W, BOX_FREE_H];
+  const outlineFor = rgb => (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) > 110 ? [20, 20, 24] : [255, 255, 255];
+  return { EFFECTS, BY_KEY, SPEEDS, INTENSITIES, SIZES, COLORS, CANVAS, OUTLINE_WIDTH, SHADOW_OFFSET,
+           build, safeScale, needsRoom, artworkScale, textCentre, captionBox, outlineFor, effectKeys, clamp };
+})();
+
+</script>
+<script id="app">
+(function () {
+  "use strict";
+  const tg = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData !== undefined ? window.Telegram.WebApp : null;
+  const $ = id => document.getElementById(id);
+  const qs = new URLSearchParams(location.search);
+  const STR = {
+    en: { title: "Sticker Forge editor", drag: "Drag on the picture to move the caption", pick: "🖼 Choose image", demo: "Demo",
+      fx: "EFFECT", fx2: "Effect 2", fx3: "Effect 3", none: "none", motion: "MOTION", speed: { slow: "🐢 Slow", normal: "Normal", fast: "🐇 Fast" },
+      inten: { low: "Soft", normal: "Normal", high: "Strong" }, outline: "OUTLINE", out: { none: "None", white: "⚪ Outline", shadow: "🌑 Shadow" },
+      text: "CAPTION", textPh: "Caption text (optional)", size: "Size", sizes: { small: "S", medium: "M", large: "L", xlarge: "XL" }, font: "Font",
+      pos: "Position", poss: { top: "Top", center: "Middle", bottom: "Bottom" }, posNote: "Position: x={x}, y={y} (drag the caption on the picture)",
+      bg: "Remove flat background", on: "On", off: "Off", bgNote: "The preview is approximate; the bot does the real removal.",
+      img: "Image settings (PNG/JPG → TGS)", imgNote: "Saved for you. Fewer colours = smaller file.", colors: "Colours", detail: "Detail",
+      details: { low: "Low", normal: "Normal", high: "High" }, speckle: "Ignore blobs smaller than (px)", denoise: "Denoise", off2: "Off",
+      tol: "Background tolerance", tols: { 18: "Strict", 36: "Normal", 60: "Loose" }, fmt: "OUTPUT FORMAT",
+      fmtNote: "Send your image to the bot first or right after — the bot renders it with these settings.", send: "Send to bot ✅" },
+    fa: { title: "ویرایشگر Sticker Forge", drag: "برای جابه‌جایی متن، روی تصویر بکشید", pick: "🖼 انتخاب تصویر", demo: "نمونه",
+      fx: "افکت", fx2: "افکت ۲", fx3: "افکت ۳", none: "ندارد", motion: "حرکت", speed: { slow: "🐢 کند", normal: "عادی", fast: "🐇 تند" },
+      inten: { low: "ملایم", normal: "عادی", high: "قوی" }, outline: "حاشیه", out: { none: "ندارد", white: "⚪ حاشیه", shadow: "🌑 سایه" },
+      text: "متن", textPh: "متن روی استیکر (اختیاری)", size: "اندازه", sizes: { small: "کوچک", medium: "متوسط", large: "بزرگ", xlarge: "خیلی بزرگ" }, font: "فونت",
+      pos: "جای متن", poss: { top: "بالا", center: "وسط", bottom: "پایین" }, posNote: "موقعیت: x={x}، y={y} (متن را روی تصویر بکشید)",
+      bg: "حذف پس‌زمینه‌ی یک‌رنگ", on: "روشن", off: "خاموش", bgNote: "پیش‌نمایش تقریبی است؛ حذف واقعی را ربات انجام می‌دهد.",
+      img: "تنظیمات تصویر (PNG/JPG ← TGS)", imgNote: "برای شما ذخیره می‌شود. رنگ کمتر = فایل کوچک‌تر.", colors: "تعداد رنگ", detail: "جزئیات",
+      details: { low: "کم", normal: "عادی", high: "زیاد" }, speckle: "نادیده گرفتن لکه‌های کوچک‌تر از (پیکسل)", denoise: "نویززدایی", off2: "خاموش",
+      tol: "تلرانس پس‌زمینه", tols: { 18: "سخت‌گیرانه", 36: "عادی", 60: "آزاد" }, fmt: "فرمت خروجی",
+      fmtNote: "تصویر را قبل یا بعد از این به ربات بفرستید — ربات با همین تنظیمات می‌سازد.", send: "ارسال به ربات ✅" },
+  };
+  let lang = (qs.get("lang") || (tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.language_code) || "en").slice(0, 2) === "fa" ? "fa" : "en";
+  const fonts = (qs.get("fonts") || "").split(",").filter(Boolean);
+
+  const DEFAULT = { effect: "pulse", fx2: "", fx3: "", speed: "normal", intensity: "normal", outline: "none", text: "", text_pos: "bottom",
+    text_x: 256, text_y: 456, text_size: "large", text_color: "white", font: "", bg: false, fmt: "webm",
+    img: { colors: 8, detail: "normal", speckle: 4, denoise: 0, bg_tol: 36 } };
+  let S = JSON.parse(JSON.stringify(DEFAULT));
+  try { Object.assign(S, JSON.parse(localStorage.getItem("sf_state") || "{}")); S.img = Object.assign({}, DEFAULT.img, S.img || {}); } catch (e) {}
+  const ip = (qs.get("img") || "").split(",");          // saved image settings from the bot: colors,detail,speckle,denoise,tol
+  if (ip.length === 5) S.img = { colors: +ip[0], detail: ip[1], speckle: +ip[2], denoise: +ip[3], bg_tol: +ip[4] };
+  if (!SF.BY_KEY[S.effect]) S.effect = "pulse";
+
+  // ---------- artwork ----------
+  const cv = $("cv"), ctx = cv.getContext("2d");
+  let srcImg = null, art = null, page = null, effect = null, safe = 1;
+  const mk = () => { const c = document.createElement("canvas"); c.width = c.height = 512; return c; };
+
+  function demoArt() {
+    const c = mk(), g = c.getContext("2d");
+    const gr = g.createLinearGradient(80, 60, 430, 450); gr.addColorStop(0, "#7c4dff"); gr.addColorStop(1, "#ff4081");
+    g.fillStyle = gr; g.beginPath(); g.arc(256, 256, 190, 0, Math.PI * 2); g.fill();
+    g.fillStyle = "#fff"; g.beginPath();
+    for (let i = 0; i < 10; i++) { const r = i % 2 ? 55 : 120, a = -Math.PI / 2 + i * Math.PI / 5; g.lineTo(256 + r * Math.cos(a), 250 + r * Math.sin(a)); }
+    g.closePath(); g.fill(); return { canvas: c, w: 380, h: 380, demo: true };
+  }
+  function fitArt(img) {                                   // 'contain' into 512x512, like the bot does
+    const c = mk(), g = c.getContext("2d"), s = Math.min(512 / img.width, 512 / img.height);
+    const w = Math.round(img.width * s), h = Math.round(img.height * s);
+    g.drawImage(img, (512 - w) / 2, (512 - h) / 2, w, h);
+    return { canvas: c, w, h, demo: false };
+  }
+  function removeBg(a, tol) {                              // approximate flood fill from the border (preview only)
+    const g = a.canvas.getContext("2d"), x0 = Math.round((512 - a.w) / 2), y0 = Math.round((512 - a.h) / 2);
+    const id = g.getImageData(0, 0, 512, 512), d = id.data, W = 512;
+    const ring = [];
+    for (let x = x0; x < x0 + a.w; x++) { ring.push([x, y0]); ring.push([x, y0 + a.h - 1]); }
+    for (let y = y0; y < y0 + a.h; y++) { ring.push([x0, y]); ring.push([x0 + a.w - 1, y]); }
+    const px = (x, y) => { const i = (y * W + x) * 4; return [d[i], d[i + 1], d[i + 2], d[i + 3]]; };
+    const cols = ring.map(p => px(p[0], p[1])).filter(c => c[3] > 200);
+    if (!cols.length) return;
+    const ref = [0, 1, 2].map(k => cols.map(c => c[k]).sort((p, q) => p - q)[cols.length >> 1]);
+    const dist = c => Math.abs(c[0] - ref[0]) + Math.abs(c[1] - ref[1]) + Math.abs(c[2] - ref[2]);
+    if (cols.filter(c => dist(c) <= tol * 2).length < .85 * cols.length) return;
+    const seen = new Uint8Array(W * W), stack = [];
+    for (const p of ring) { const c = px(p[0], p[1]); if (c[3] > 200 && dist(c) <= tol * 2) stack.push(p); }
+    while (stack.length) {
+      const [x, y] = stack.pop(), k = y * W + x;
+      if (x < x0 || y < y0 || x >= x0 + a.w || y >= y0 + a.h || seen[k]) continue;
+      const c = px(x, y); if (c[3] < 200 || dist(c) > tol * 2) continue;
+      seen[k] = 1; d[k * 4 + 3] = 0;
+      stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+    }
+    g.putImageData(id, 0, 0);
+  }
+  function loadArt() {
+    const base = srcImg ? fitArt(srcImg) : demoArt();
+    if (S.bg && !base.demo) removeBg(base, S.img.bg_tol);
+    art = base;
+  }
+
+  // ---------- caption ----------
+  function layoutText(g, text, boxW, boxH, cap) {
+    const fam = '"' + (S.font || "Vazirmatn") + '", Vazirmatn, Tahoma, "DejaVu Sans", sans-serif';
+    const trial = (lines, size) => { g.font = "bold " + size + "px " + fam; const st = Math.max(2, Math.floor(size / 9));
+      const ws = lines.map(l => g.measureText(l).width + 2 * st); return { w: Math.max.apply(null, ws), h: lines.length * size * 1.2 + (lines.length - 1) * 4, st }; };
+    const words = text.split(" "), two = [text];
+    if (words.length > 1) { let best = null, bd = 1e9; for (let i = 1; i < words.length; i++) { const a = words.slice(0, i).join(" "), b = words.slice(i).join(" "), dd = Math.abs(a.length - b.length); if (dd < bd) { bd = dd; best = [a, b]; } } two = best; }
+    for (const lines of [[text], two]) { if (lines.length === 2 && lines[0] === text) continue;
+      for (let size = cap; size >= 22; size -= 2) { const m = trial(lines, size); if (m.w <= boxW && m.h <= boxH) return { lines, size, fam, st: m.st, w: m.w, h: m.h }; } }
+    const m = trial([text], 22); return { lines: [text], size: 22, fam, st: m.st, w: m.w, h: m.h };
+  }
+  function drawCaption(g) {
+    const text = S.text.trim(); if (!text) return;
+    const o = S, [bw, bh] = SF.captionBox(o), L = layoutText(g, text, bw, bh, SF.SIZES[o.text_size] || 72);
+    let [cx, cy] = SF.textCentre(o);
+    cx = SF.clamp(cx, L.w / 2, 512 - L.w / 2); cy = SF.clamp(cy, L.h / 2, 512 - L.h / 2);
+    const rgb = SF.COLORS[o.text_color] || SF.COLORS.white, edge = SF.outlineFor(rgb);
+    g.font = "bold " + L.size + "px " + L.fam; g.textAlign = "center"; g.textBaseline = "middle"; g.lineJoin = "round";
+    g.lineWidth = L.st * 2; g.strokeStyle = "rgb(" + edge.join(",") + ")"; g.fillStyle = "rgb(" + rgb.join(",") + ")";
+    L.lines.forEach((ln, i) => { const y = cy - L.h / 2 + L.size * 0.6 + i * (L.size * 1.2 + 4); g.strokeText(ln, cx, y); g.fillText(ln, cx, y); });
+  }
+
+  // ---------- page = artwork + outline/shadow + caption (what the bot bakes in) ----------
+  function silhouette(src, color) {
+    const c = mk(), g = c.getContext("2d"); g.drawImage(src, 0, 0); g.globalCompositeOperation = "source-in"; g.fillStyle = color; g.fillRect(0, 0, 512, 512); return c;
+  }
+  function composePage() {
+    const o = S, out = mk(), g = out.getContext("2d");
+    if (!SF.needsRoom(o)) { g.drawImage(art.canvas, 0, 0); page = out; return; }
+    const { f, cy } = SF.artworkScale(o), n = Math.max(1, Math.round(512 * f)), p = mk();
+    p.getContext("2d").drawImage(art.canvas, Math.floor((512 - n) / 2), Math.round(cy - n / 2), n, n);
+    if (o.outline === "white") { const sil = silhouette(p, "#fff"); for (let i = 0; i < 20; i++) { const a = i * Math.PI / 10; g.drawImage(sil, Math.cos(a) * SF.OUTLINE_WIDTH, Math.sin(a) * SF.OUTLINE_WIDTH); } }
+    else if (o.outline === "shadow") { const sil = silhouette(p, "#000"); g.globalAlpha = .07; for (let i = 0; i < 9; i++) g.drawImage(sil, SF.SHADOW_OFFSET[0] + (i % 3 - 1) * 2, SF.SHADOW_OFFSET[1] + (Math.floor(i / 3) - 1) * 2); g.globalAlpha = 1; }
+    g.drawImage(p, 0, 0); drawCaption(g); page = out;
+  }
+  function rebuildEffect() {
+    effect = SF.build(S);
+    const s = art ? Math.max(art.w, art.h) : 400, scale = SF.needsRoom(S) ? SF.artworkScale(S).f : 1;
+    safe = SF.safeScale(effect.fn, art.w * scale, art.h * scale);
+  }
+  function refresh(full) { if (full) loadArt(); composePage(); rebuildEffect(); posNote(); persist(); }
+
+  // ---------- animation ----------
+  function frame(ts) {
+    if (page && effect) {
+      const t = effect.fn(((ts / 1000) / effect.duration) % 1);
+      ctx.clearRect(0, 0, 512, 512); ctx.save();
+      ctx.globalAlpha = t.opacity; ctx.translate(256 + t.dx, 256 + t.dy); ctx.rotate(t.rot * Math.PI / 180); ctx.scale(t.sx * safe, t.sy * safe);
+      ctx.drawImage(page, -256, -256); ctx.restore();
+    }
+    requestAnimationFrame(frame);
+  }
+
+  // ---------- drag the caption ----------
+  let dragging = false;
+  function moveTo(e) {
+    if (!S.text.trim()) return;
+    const r = cv.getBoundingClientRect();
+    S.text_pos = "custom"; S.text_x = Math.round(SF.clamp((e.clientX - r.left) / r.width * 512, 0, 512)); S.text_y = Math.round(SF.clamp((e.clientY - r.top) / r.height * 512, 0, 512));
+    composePage(); posNote(); buildSeg("tpos", ["top", "center", "bottom"], () => S.text_pos, v => { S.text_pos = v; refresh(); }, k => STR[lang].poss[k]); persist();
+  }
+  cv.addEventListener("pointerdown", e => { dragging = true; cv.setPointerCapture(e.pointerId); moveTo(e); });
+  cv.addEventListener("pointermove", e => { if (dragging) moveTo(e); });
+  cv.addEventListener("pointerup", () => { dragging = false; });
+
+  // ---------- UI ----------
+  function buildSeg(id, values, get, set, label) {
+    const el = $(id); el.innerHTML = "";
+    values.forEach(v => { const b = document.createElement("button"); b.textContent = label(v); if (String(get()) === String(v)) b.className = "on";
+      b.onclick = () => { set(v); haptic(); buildSeg(id, values, get, set, label); }; el.appendChild(b); });
+  }
+  function haptic() { try { tg && tg.HapticFeedback && tg.HapticFeedback.selectionChanged(); } catch (e) {} }
+  function posNote() { const [x, y] = SF.textCentre(S); $("posNote").textContent = STR[lang].posNote.replace("{x}", Math.round(x)).replace("{y}", Math.round(y)); $("posNote").style.display = S.text.trim() ? "" : "none"; }
+  function persist() { try { localStorage.setItem("sf_state", JSON.stringify(S)); } catch (e) {} }
+
+  function build() {
+    const L = STR[lang]; document.documentElement.lang = lang; document.documentElement.dir = lang === "fa" ? "rtl" : "ltr";
+    $("langBtn").textContent = lang === "fa" ? "English" : "فارسی";
+    document.title = $("title").textContent = L.title; $("dragHint").textContent = L.drag; $("pickTxt").textContent = L.pick; $("demoBtn").textContent = L.demo;
+    $("h_fx").textContent = L.fx; $("l_fx2").textContent = L.fx2; $("l_fx3").textContent = L.fx3; $("h_motion").textContent = L.motion; $("h_outline").textContent = L.outline;
+    $("h_text").textContent = L.text; $("text").placeholder = L.textPh; $("l_size").textContent = L.size; $("l_font").textContent = L.font; $("l_pos").textContent = L.pos;
+    $("l_bg").textContent = L.bg; $("bgNote").textContent = L.bgNote; $("h_img").textContent = L.img; $("imgNote").textContent = L.imgNote;
+    $("l_colors").textContent = L.colors; $("l_detail").textContent = L.detail; $("l_speckle").textContent = L.speckle; $("l_denoise").textContent = L.denoise; $("l_tol").textContent = L.tol;
+    $("h_fmt").textContent = L.fmt; $("fmtNote").textContent = L.fmtNote; $("sendBtn").textContent = L.send; $("text").value = S.text;
+    const chips = $("chips"); chips.innerHTML = "";
+    SF.EFFECTS.forEach(e => { const b = document.createElement("button"); b.className = "chip" + (e.key === S.effect ? " on" : ""); b.textContent = lang === "fa" ? e.fa : e.en;
+      b.onclick = () => { S.effect = e.key; if (S.fx2 === e.key) S.fx2 = ""; if (S.fx3 === e.key) S.fx3 = ""; haptic(); build(); refresh(); }; chips.appendChild(b); });
+    for (const [id, other] of [["fx2", "fx3"], ["fx3", "fx2"]]) {
+      const sel = $(id); sel.innerHTML = ""; const add = (v, t) => { const o = document.createElement("option"); o.value = v; o.textContent = t; if (S[id] === v) o.selected = true; sel.appendChild(o); };
+      add("", "— " + L.none); SF.EFFECTS.forEach(e => { if (e.key !== S.effect && e.key !== S[other]) add(e.key, lang === "fa" ? e.fa : e.en); });
+      sel.onchange = () => { S[id] = sel.value; build(); refresh(); };
+    }
+    buildSeg("speed", ["slow", "normal", "fast"], () => S.speed, v => { S.speed = v; refresh(); }, k => L.speed[k]);
+    buildSeg("intensity", ["low", "normal", "high"], () => S.intensity, v => { S.intensity = v; refresh(); }, k => L.inten[k]);
+    buildSeg("outline", ["none", "white", "shadow"], () => S.outline, v => { S.outline = v; refresh(); }, k => L.out[k]);
+    buildSeg("tsize", ["small", "medium", "large", "xlarge"], () => S.text_size, v => { S.text_size = v; refresh(); }, k => L.sizes[k]);
+    buildSeg("tpos", ["top", "center", "bottom"], () => S.text_pos, v => { S.text_pos = v; refresh(); }, k => L.poss[k]);
+    const sw = $("colors"); sw.innerHTML = "";
+    Object.keys(SF.COLORS).forEach(c => { const b = document.createElement("button"); b.className = "sw" + (S.text_color === c ? " on" : ""); b.style.background = "rgb(" + SF.COLORS[c].join(",") + ")";
+      b.onclick = () => { S.text_color = c; haptic(); build(); refresh(); }; sw.appendChild(b); });
+    if (fonts.length) { $("fontWrap").style.display = ""; const f = $("font"); f.innerHTML = ""; fonts.forEach(n => { const o = document.createElement("option"); o.value = n; o.textContent = n.replace(/[-_]/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2");
+      if ((S.font || fonts[0]) === n) o.selected = true; f.appendChild(o); }); f.onchange = () => { S.font = f.value; refresh(); }; if (!S.font) S.font = fonts[0]; }
+    buildSeg("bg", [false, true], () => S.bg, v => { S.bg = v; refresh(true); }, v => v ? L.on : L.off);
+    buildSeg("i_colors", [4, 6, 8, 12], () => S.img.colors, v => { S.img.colors = v; persist(); }, v => v);
+    buildSeg("i_detail", ["low", "normal", "high"], () => S.img.detail, v => { S.img.detail = v; persist(); }, k => L.details[k]);
+    buildSeg("i_speckle", [4, 12, 40], () => S.img.speckle, v => { S.img.speckle = v; persist(); }, v => v);
+    buildSeg("i_denoise", [0, 3, 5], () => S.img.denoise, v => { S.img.denoise = v; persist(); }, v => v === 0 ? L.off2 : v);
+    buildSeg("i_tol", [18, 36, 60], () => S.img.bg_tol, v => { S.img.bg_tol = v; refresh(S.bg); }, v => L.tols[v]);
+    buildSeg("fmt", ["webm", "tgs"], () => S.fmt, v => { S.fmt = v; persist(); }, v => v.toUpperCase());
+    posNote();
+  }
+
+  $("text").addEventListener("input", e => { S.text = e.target.value.slice(0, 28); refresh(); });
+  $("file").addEventListener("change", e => {
+    const f = e.target.files && e.target.files[0]; if (!f) return;
+    const url = URL.createObjectURL(f), im = new Image();
+    im.onload = () => { srcImg = im; refresh(true); URL.revokeObjectURL(url); }; im.src = url;
+  });
+  $("demoBtn").onclick = () => { srcImg = null; refresh(true); };
+  $("langBtn").onclick = () => { lang = lang === "fa" ? "en" : "fa"; build(); updateMain(); };
+
+  // ---------- send ----------
+  function payload() {
+    const p = { v: 1, effect: S.effect, fx2: S.fx2 || null, fx3: S.fx3 || null, speed: S.speed, intensity: S.intensity, outline: S.outline,
+      text: S.text.trim(), text_pos: S.text_pos, text_x: S.text_x, text_y: S.text_y, text_size: S.text_size, text_color: S.text_color,
+      bg: !!S.bg, fmt: S.fmt, img: S.img };
+    if (S.font) p.font = S.font;
+    return JSON.stringify(p);
+  }
+  function send() {
+    const data = payload();
+    if (tg) { tg.sendData(data); } else { alert(data); }
+  }
+  function updateMain() { if (tg) { tg.MainButton.setText(STR[lang].send); tg.MainButton.show(); } }
+  $("sendBtn").onclick = send;
+  if (tg) { tg.ready(); tg.expand(); tg.MainButton.onClick(send); updateMain(); } else { $("sendFallback").style.display = "block"; }
+
+  build(); refresh(true); requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
