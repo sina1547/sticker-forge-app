@@ -6,9 +6,14 @@
 <title>Sticker Forge</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
-  :root { --bg: var(--tg-theme-bg-color, #ffffff); --fg: var(--tg-theme-text-color, #111111);
-          --hint: var(--tg-theme-hint-color, #7d7d85); --card: var(--tg-theme-secondary-bg-color, #f1f1f4);
-          --btn: var(--tg-theme-button-color, #2481cc); --btn-fg: var(--tg-theme-button-text-color, #ffffff); --ok: #2e9e55; }
+  :root, :root[data-theme=light] { --bg: #ffffff; --fg: #111111; --hint: #7d7d85; --card: #f1f1f4; --btn: #2481cc; --btn-fg: #ffffff; --chk1: #d9d9de; --chk2: #f4f4f7; color-scheme: light; }
+  :root[data-theme=dark] { --bg: #17212b; --fg: #f1f4f8; --hint: #8b9aa8; --card: #232e3c; --btn: #4a90d9; --btn-fg: #ffffff; --chk1: #2b3a4a; --chk2: #34465a; color-scheme: dark; }
+  .theme { background: var(--card); color: var(--fg); border: 0; border-radius: 14px; padding: 5px 10px; font-size: 15px; }
+  .fonts { display: grid; gap: 6px; max-height: 260px; overflow-y: auto; }
+  .fbtn { display: flex; justify-content: space-between; align-items: center; gap: 10px; text-align: start; border: 0; background: var(--bg); color: var(--fg); border-radius: 10px; padding: 8px 10px; font: inherit; }
+  .fbtn.on { outline: 2px solid var(--btn); }
+  .fbtn .fname { font-size: 11px; color: var(--hint); flex: 0 0 38%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fbtn .fsample { font-size: 20px; flex: 1; text-align: end; white-space: nowrap; overflow: hidden; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif; padding-bottom: 90px; }
   header { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px 4px; }
@@ -16,7 +21,7 @@
   .lang { background: var(--card); color: var(--fg); border: 0; border-radius: 14px; padding: 5px 12px; font-size: 13px; }
   .stage { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 6px 14px 10px; text-align: center; }
   canvas { width: min(100%, 300px); aspect-ratio: 1; border-radius: 16px; touch-action: none; display: block; margin: 0 auto;
-           background: repeating-conic-gradient(#d9d9de 0% 25%, #f4f4f7 0% 50%) 50% / 24px 24px; }
+           background: repeating-conic-gradient(var(--chk1) 0% 25%, var(--chk2) 0% 50%) 50% / 24px 24px; }
   .hint { color: var(--hint); font-size: 12px; margin-top: 6px; }
   .row { display: flex; gap: 8px; justify-content: center; margin-top: 8px; flex-wrap: wrap; }
   .card { background: var(--card); border-radius: 14px; padding: 12px; margin: 10px 14px; }
@@ -41,7 +46,7 @@
 </style>
 </head>
 <body>
-<header><h1 id="title">Sticker Forge</h1><button class="lang" id="langBtn">فارسی</button></header>
+<header><h1 id="title">Sticker Forge</h1><div><button class="theme" id="themeBtn" title="theme">🌙</button> <button class="lang" id="langBtn">فارسی</button></div></header>
 
 <div class="stage">
   <canvas id="cv" width="512" height="512"></canvas>
@@ -63,7 +68,10 @@
   <input type="text" id="text" maxlength="28" autocomplete="off">
   <label class="field"><span id="l_size"></span></label><div class="seg" id="tsize"></div>
   <div class="swatches" id="colors"></div>
-  <label class="field" id="fontWrap" style="display:none"><span id="l_font"></span><select id="font"></select></label>
+  <label class="field"><span id="l_tfx"></span></label><div class="chips" id="tfx"></div>
+  <label class="field"><span id="l_font"></span></label><div class="fonts" id="fontList"></div>
+  <div class="row" style="justify-content:flex-start"><label class="btn alt"><input type="file" id="fontFile" accept=".ttf,.otf,.woff,.woff2" hidden><span id="fontPick"></span></label></div>
+  <div class="note" id="fontNote"></div>
   <label class="field"><span id="l_pos"></span></label><div class="seg" id="tpos"></div>
   <div class="note" id="posNote"></div>
 </div>
@@ -175,7 +183,21 @@ const SF = (function () {
   }
   const captionBox = o => (o.text_pos === "top" || o.text_pos === "bottom") ? [BOX_W, BAND - 8] : [BOX_W, BOX_FREE_H];
   const outlineFor = rgb => (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) > 110 ? [20, 20, 24] : [255, 255, 255];
-  return { EFFECTS, BY_KEY, SPEEDS, INTENSITIES, SIZES, COLORS, CANVAS, OUTLINE_WIDTH, SHADOW_OFFSET,
+  // ----- caption effects (same formulas as engine/textfx.py) -----
+  const TEXT_FX = ["sync", "static", "wave", "bend", "marquee", "neon", "typing", "handwriting", "threed"];
+  const TEXT_FX_LABELS = {"sync": ["With the picture", "همراه تصویر"], "static": ["Still", "ثابت"], "wave": ["Wave", "موج"], "bend": ["Bend", "خمیدگی"], "marquee": ["Move across", "حرکت در صفحه"], "neon": ["Neon", "نئون"], "typing": ["Typing", "تایپ"], "handwriting": ["Handwriting", "دست‌نویس"], "threed": ["3D", "سه‌بعدی"]};
+  const SEPARATE = TEXT_FX.filter(k => k !== "sync"), SINGLE_LINE = ["wave", "bend", "marquee", "typing"];
+  const BEND_AMOUNT = .85, REVEAL_END = .6, HOLD_END = .92;
+  const waveDy = (xn, p, amp) => amp * Math.sin(TAU * (xn * 1.5 - p));
+  const bendDy = (xn, height, amount) => -(amount === undefined ? BEND_AMOUNT : amount) * height * .9 * (1 - Math.pow(2 * xn - 1, 2));
+  const marqueeX = (p, width) => CANVAS - p * (CANVAS + width);
+  const neonPulse = p => .75 + .25 * Math.sin(TAU * p);
+  const revealFraction = p => p >= HOLD_END ? 0 : clamp(p / REVEAL_END, 0, 1);
+  const typingFraction = (p, n) => { const f = revealFraction(p); return n > 0 ? Math.floor(f * n + 1e-9) / n : f; };
+  const threedAngle = p => Math.PI / 4 + .7 * Math.sin(TAU * p);
+  const extrusionDepth = h => Math.max(5, Math.round(h * .14));
+  return { TEXT_FX, TEXT_FX_LABELS, SEPARATE, SINGLE_LINE, waveDy, bendDy, marqueeX, neonPulse, revealFraction, typingFraction, threedAngle, extrusionDepth,
+           EFFECTS, BY_KEY, SPEEDS, INTENSITIES, SIZES, COLORS, CANVAS, OUTLINE_WIDTH, SHADOW_OFFSET,
            build, safeScale, needsRoom, artworkScale, textCentre, captionBox, outlineFor, effectKeys, clamp };
 })();
 
@@ -190,7 +212,7 @@ const SF = (function () {
     en: { title: "Sticker Forge editor", drag: "Drag on the picture to move the caption", pick: "🖼 Choose image", demo: "Demo",
       fx: "EFFECT", fx2: "Effect 2", fx3: "Effect 3", none: "none", motion: "MOTION", speed: { slow: "🐢 Slow", normal: "Normal", fast: "🐇 Fast" },
       inten: { low: "Soft", normal: "Normal", high: "Strong" }, outline: "OUTLINE", out: { none: "None", white: "⚪ Outline", shadow: "🌑 Shadow" },
-      text: "CAPTION", textPh: "Caption text (optional)", size: "Size", sizes: { small: "S", medium: "M", large: "L", xlarge: "XL" }, font: "Font",
+      text: "CAPTION", tfx: "Caption effect", fontPick: "📱 Font from phone", fontNote: "A phone font is previewed here; to render it, also send the font file to the bot as a document.", textPh: "Caption text (optional)", size: "Size", sizes: { small: "S", medium: "M", large: "L", xlarge: "XL" }, font: "Font",
       pos: "Position", poss: { top: "Top", center: "Middle", bottom: "Bottom" }, posNote: "Position: x={x}, y={y} (drag the caption on the picture)",
       bg: "Remove flat background", on: "On", off: "Off", bgNote: "The preview is approximate; the bot does the real removal.",
       img: "Image settings (PNG/JPG → TGS)", imgNote: "Saved for you. Fewer colours = smaller file.", colors: "Colours", detail: "Detail",
@@ -200,7 +222,7 @@ const SF = (function () {
     fa: { title: "ویرایشگر Sticker Forge", drag: "برای جابه‌جایی متن، روی تصویر بکشید", pick: "🖼 انتخاب تصویر", demo: "نمونه",
       fx: "افکت", fx2: "افکت ۲", fx3: "افکت ۳", none: "ندارد", motion: "حرکت", speed: { slow: "🐢 کند", normal: "عادی", fast: "🐇 تند" },
       inten: { low: "ملایم", normal: "عادی", high: "قوی" }, outline: "حاشیه", out: { none: "ندارد", white: "⚪ حاشیه", shadow: "🌑 سایه" },
-      text: "متن", textPh: "متن روی استیکر (اختیاری)", size: "اندازه", sizes: { small: "کوچک", medium: "متوسط", large: "بزرگ", xlarge: "خیلی بزرگ" }, font: "فونت",
+      text: "متن", tfx: "افکت متن", fontPick: "📱 فونت از گوشی", fontNote: "فونت گوشی اینجا پیش‌نمایش می‌شود؛ برای ساخت، فایل فونت را هم به‌صورت Document برای ربات بفرستید.", textPh: "متن روی استیکر (اختیاری)", size: "اندازه", sizes: { small: "کوچک", medium: "متوسط", large: "بزرگ", xlarge: "خیلی بزرگ" }, font: "فونت",
       pos: "جای متن", poss: { top: "بالا", center: "وسط", bottom: "پایین" }, posNote: "موقعیت: x={x}، y={y} (متن را روی تصویر بکشید)",
       bg: "حذف پس‌زمینه‌ی یک‌رنگ", on: "روشن", off: "خاموش", bgNote: "پیش‌نمایش تقریبی است؛ حذف واقعی را ربات انجام می‌دهد.",
       img: "تنظیمات تصویر (PNG/JPG ← TGS)", imgNote: "برای شما ذخیره می‌شود. رنگ کمتر = فایل کوچک‌تر.", colors: "تعداد رنگ", detail: "جزئیات",
@@ -209,19 +231,22 @@ const SF = (function () {
       fmtNote: "تصویر را قبل یا بعد از این به ربات بفرستید — ربات با همین تنظیمات می‌سازد.", send: "ارسال به ربات ✅" },
   };
   let lang = (qs.get("lang") || (tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.language_code) || "en").slice(0, 2) === "fa" ? "fa" : "en";
-  const fonts = (qs.get("fonts") || "").split(",").filter(Boolean);
+  const fonts = (qs.get("fonts") || "").split(",").filter(Boolean);        // fonts the bot has
+  const fontItems = [];                                                      // {name,label,phone,file,family}
 
   const DEFAULT = { effect: "pulse", fx2: "", fx3: "", speed: "normal", intensity: "normal", outline: "none", text: "", text_pos: "bottom",
-    text_x: 256, text_y: 456, text_size: "large", text_color: "white", font: "", bg: false, fmt: "webm",
+    text_x: 256, text_y: 456, text_size: "large", text_color: "white", text_fx: "sync", font: "", font_phone: "", bg: false, fmt: "webm",
     img: { colors: 8, detail: "normal", speckle: 4, denoise: 0, bg_tol: 36 } };
   let S = JSON.parse(JSON.stringify(DEFAULT));
-  try { Object.assign(S, JSON.parse(localStorage.getItem("sf_state") || "{}")); S.img = Object.assign({}, DEFAULT.img, S.img || {}); } catch (e) {}
+  try { Object.assign(S, JSON.parse(localStorage.getItem("sf_state") || "{}")); S.font_phone = ""; S.img = Object.assign({}, DEFAULT.img, S.img || {}); } catch (e) {}
   const ip = (qs.get("img") || "").split(",");          // saved image settings from the bot: colors,detail,speckle,denoise,tol
   if (ip.length === 5) S.img = { colors: +ip[0], detail: ip[1], speckle: +ip[2], denoise: +ip[3], bg_tol: +ip[4] };
   if (!SF.BY_KEY[S.effect]) S.effect = "pulse";
+  if (SF.TEXT_FX.indexOf(S.text_fx) < 0) S.text_fx = "sync";
 
   // ---------- artwork ----------
   const cv = $("cv"), ctx = cv.getContext("2d");
+  let phoneFamily = "";                                  // font family of a font picked from the phone
   let srcImg = null, art = null, page = null, effect = null, safe = 1;
   const mk = () => { const c = document.createElement("canvas"); c.width = c.height = 512; return c; };
 
@@ -269,18 +294,19 @@ const SF = (function () {
   }
 
   // ---------- caption ----------
-  function layoutText(g, text, boxW, boxH, cap) {
-    const fam = '"' + (S.font || "Vazirmatn") + '", Vazirmatn, Tahoma, "DejaVu Sans", sans-serif';
+  function layoutText(g, text, boxW, boxH, cap, single) {
+    const fam = '"' + (S.font_phone ? phoneFamily : (S.font || "Vazirmatn")) + '", Vazirmatn, Tahoma, "DejaVu Sans", sans-serif';
     const trial = (lines, size) => { g.font = "bold " + size + "px " + fam; const st = Math.max(2, Math.floor(size / 9));
       const ws = lines.map(l => g.measureText(l).width + 2 * st); return { w: Math.max.apply(null, ws), h: lines.length * size * 1.2 + (lines.length - 1) * 4, st }; };
     const words = text.split(" "), two = [text];
     if (words.length > 1) { let best = null, bd = 1e9; for (let i = 1; i < words.length; i++) { const a = words.slice(0, i).join(" "), b = words.slice(i).join(" "), dd = Math.abs(a.length - b.length); if (dd < bd) { bd = dd; best = [a, b]; } } two = best; }
-    for (const lines of [[text], two]) { if (lines.length === 2 && lines[0] === text) continue;
+    for (const lines of (single ? [[text]] : [[text], two])) { if (lines.length === 2 && lines[0] === text) continue;
       for (let size = cap; size >= 22; size -= 2) { const m = trial(lines, size); if (m.w <= boxW && m.h <= boxH) return { lines, size, fam, st: m.st, w: m.w, h: m.h }; } }
     const m = trial([text], 22); return { lines: [text], size: 22, fam, st: m.st, w: m.w, h: m.h };
   }
+  const separate = () => SF.SEPARATE.indexOf(S.text_fx) >= 0 && !!S.text.trim();
   function drawCaption(g) {
-    const text = S.text.trim(); if (!text) return;
+    const text = S.text.trim(); if (!text || separate()) return;      // a separate caption is drawn per frame instead
     const o = S, [bw, bh] = SF.captionBox(o), L = layoutText(g, text, bw, bh, SF.SIZES[o.text_size] || 72);
     let [cx, cy] = SF.textCentre(o);
     cx = SF.clamp(cx, L.w / 2, 512 - L.w / 2); cy = SF.clamp(cy, L.h / 2, 512 - L.h / 2);
@@ -308,7 +334,38 @@ const SF = (function () {
     const s = art ? Math.max(art.w, art.h) : 400, scale = SF.needsRoom(S) ? SF.artworkScale(S).f : 1;
     safe = SF.safeScale(effect.fn, art.w * scale, art.h * scale);
   }
-  function refresh(full) { if (full) loadArt(); composePage(); rebuildEffect(); posNote(); persist(); }
+  function refresh(full) { if (full) loadArt(); composePage(); buildCaption(); rebuildEffect(); posNote(); persist(); }
+
+  // ---------- separately animated caption (preview of engine/textfx.py) ----------
+  let cap = null;     // {c: canvas with outline, plain: canvas without, dark: darkened silhouette, w, h, cx, cy, n, rtl}
+  function buildCaption() {
+    cap = null; if (!separate()) return;
+    const o = S, text = o.text.trim(), tmp = mk().getContext("2d"), [bw, bh] = SF.captionBox(o);
+    const L = layoutText(tmp, text, bw, bh, SF.SIZES[o.text_size] || 72, SF.SINGLE_LINE.indexOf(o.text_fx) >= 0);
+    const pad = L.st + 3, w = Math.ceil(L.w) + 2 * pad, h = Math.ceil(L.h) + 2 * pad;
+    const rgb = SF.COLORS[o.text_color] || SF.COLORS.white, edge = SF.outlineFor(rgb);
+    const draw = (fill, stroke, lw) => { const c = document.createElement("canvas"); c.width = w; c.height = h; const g = c.getContext("2d");
+      g.font = "bold " + L.size + "px " + L.fam; g.textAlign = "center"; g.textBaseline = "middle"; g.lineJoin = "round";
+      L.lines.forEach((ln, i) => { const y = pad + L.size * .6 + i * (L.size * 1.2 + 4); if (stroke) { g.lineWidth = lw; g.strokeStyle = stroke; g.strokeText(ln, w / 2, y); } g.fillStyle = fill; g.fillText(ln, w / 2, y); });
+      return c; };
+    const dark = draw("rgb(" + rgb.map(v => Math.round(v * .45)).join(",") + ")", null, 0);
+    let [cx, cy] = SF.textCentre(o); cx = SF.clamp(cx, w / 2, 512 - w / 2); cy = SF.clamp(cy, h / 2, 512 - h / 2);
+    cap = { c: draw("rgb(" + rgb.join(",") + ")", "rgb(" + edge.join(",") + ")", L.st * 2), plain: draw("#fff", null, 0), dark, w, h, cx, cy,
+            n: Math.max(1, text.replace(/ /g, "").length), rtl: /[\u0600-\u06FF]/.test(text), rgb };
+  }
+  function drawCaptionFx(g, p) {
+    if (!cap) return; const fx = S.text_fx, { c, w, h, cx, cy } = cap, x0 = cx - w / 2, y0 = cy - h / 2;
+    if (fx === "static") g.drawImage(c, x0, y0);
+    else if (fx === "wave" || fx === "bend") { const amp = Math.max(4, h * .18);
+      for (let x = 0; x < w; x += 2) { const xn = x / Math.max(1, w - 1), dy = fx === "wave" ? SF.waveDy(xn, p, amp) : SF.bendDy(xn, h); g.drawImage(c, x, 0, 2, h, x0 + x, y0 + dy, 2, h); } }
+    else if (fx === "marquee") g.drawImage(c, SF.marqueeX(p, w), y0);
+    else if (fx === "neon") { g.save(); g.shadowColor = "rgb(" + cap.rgb.join(",") + ")"; const k = SF.neonPulse(p);
+      for (const b of [10, 22, 36]) { g.shadowBlur = b * k; g.drawImage(cap.plain, x0, y0); } g.restore(); }
+    else if (fx === "typing" || fx === "handwriting") { const f = fx === "typing" ? SF.typingFraction(p, cap.n) : SF.revealFraction(p); if (f <= 0) return;
+      const cut = Math.round(w * f); g.save(); g.beginPath(); if (cap.rtl) g.rect(x0 + w - cut, y0, cut, h); else g.rect(x0, y0, cut, h); g.clip(); g.drawImage(c, x0, y0); g.restore();
+      if (fx === "typing" && f < 1 && Math.floor(p * 10) % 2 === 0) { g.fillStyle = "rgb(" + cap.rgb.join(",") + ")"; g.fillRect((cap.rtl ? x0 + w - cut : x0 + cut) - 1, y0, 3, h); } }
+    else if (fx === "threed") { const th = SF.threedAngle(p), d = SF.extrusionDepth(h); for (let k = d; k > 0; k--) g.drawImage(cap.dark, x0 + k * Math.cos(th), y0 + k * Math.sin(th)); g.drawImage(c, x0, y0); }
+  }
 
   // ---------- animation ----------
   function frame(ts) {
@@ -317,6 +374,7 @@ const SF = (function () {
       ctx.clearRect(0, 0, 512, 512); ctx.save();
       ctx.globalAlpha = t.opacity; ctx.translate(256 + t.dx, 256 + t.dy); ctx.rotate(t.rot * Math.PI / 180); ctx.scale(t.sx * safe, t.sy * safe);
       ctx.drawImage(page, -256, -256); ctx.restore();
+      if (cap) drawCaptionFx(ctx, ((ts / 1000) / effect.duration) % 1);
     }
     requestAnimationFrame(frame);
   }
@@ -327,7 +385,7 @@ const SF = (function () {
     if (!S.text.trim()) return;
     const r = cv.getBoundingClientRect();
     S.text_pos = "custom"; S.text_x = Math.round(SF.clamp((e.clientX - r.left) / r.width * 512, 0, 512)); S.text_y = Math.round(SF.clamp((e.clientY - r.top) / r.height * 512, 0, 512));
-    composePage(); posNote(); buildSeg("tpos", ["top", "center", "bottom"], () => S.text_pos, v => { S.text_pos = v; refresh(); }, k => STR[lang].poss[k]); persist();
+    composePage(); buildCaption(); posNote(); buildSeg("tpos", ["top", "center", "bottom"], () => S.text_pos, v => { S.text_pos = v; refresh(); }, k => STR[lang].poss[k]); persist();
   }
   cv.addEventListener("pointerdown", e => { dragging = true; cv.setPointerCapture(e.pointerId); moveTo(e); });
   cv.addEventListener("pointermove", e => { if (dragging) moveTo(e); });
@@ -348,7 +406,7 @@ const SF = (function () {
     $("langBtn").textContent = lang === "fa" ? "English" : "فارسی";
     document.title = $("title").textContent = L.title; $("dragHint").textContent = L.drag; $("pickTxt").textContent = L.pick; $("demoBtn").textContent = L.demo;
     $("h_fx").textContent = L.fx; $("l_fx2").textContent = L.fx2; $("l_fx3").textContent = L.fx3; $("h_motion").textContent = L.motion; $("h_outline").textContent = L.outline;
-    $("h_text").textContent = L.text; $("text").placeholder = L.textPh; $("l_size").textContent = L.size; $("l_font").textContent = L.font; $("l_pos").textContent = L.pos;
+    $("h_text").textContent = L.text; $("text").placeholder = L.textPh; $("l_size").textContent = L.size; $("l_font").textContent = L.font; $("l_tfx").textContent = L.tfx; $("fontPick").textContent = L.fontPick; $("fontNote").textContent = L.fontNote; $("l_pos").textContent = L.pos;
     $("l_bg").textContent = L.bg; $("bgNote").textContent = L.bgNote; $("h_img").textContent = L.img; $("imgNote").textContent = L.imgNote;
     $("l_colors").textContent = L.colors; $("l_detail").textContent = L.detail; $("l_speckle").textContent = L.speckle; $("l_denoise").textContent = L.denoise; $("l_tol").textContent = L.tol;
     $("h_fmt").textContent = L.fmt; $("fmtNote").textContent = L.fmtNote; $("sendBtn").textContent = L.send; $("text").value = S.text;
@@ -368,8 +426,10 @@ const SF = (function () {
     const sw = $("colors"); sw.innerHTML = "";
     Object.keys(SF.COLORS).forEach(c => { const b = document.createElement("button"); b.className = "sw" + (S.text_color === c ? " on" : ""); b.style.background = "rgb(" + SF.COLORS[c].join(",") + ")";
       b.onclick = () => { S.text_color = c; haptic(); build(); refresh(); }; sw.appendChild(b); });
-    if (fonts.length) { $("fontWrap").style.display = ""; const f = $("font"); f.innerHTML = ""; fonts.forEach(n => { const o = document.createElement("option"); o.value = n; o.textContent = n.replace(/[-_]/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2");
-      if ((S.font || fonts[0]) === n) o.selected = true; f.appendChild(o); }); f.onchange = () => { S.font = f.value; refresh(); }; if (!S.font) S.font = fonts[0]; }
+    const tf = $("tfx"); tf.innerHTML = "";
+    SF.TEXT_FX.forEach(k => { const b = document.createElement("button"); b.className = "chip" + (S.text_fx === k ? " on" : ""); b.textContent = SF.TEXT_FX_LABELS[k][lang === "fa" ? 1 : 0];
+      b.onclick = () => { S.text_fx = k; haptic(); build(); refresh(); }; tf.appendChild(b); });
+    buildFonts();
     buildSeg("bg", [false, true], () => S.bg, v => { S.bg = v; refresh(true); }, v => v ? L.on : L.off);
     buildSeg("i_colors", [4, 6, 8, 12], () => S.img.colors, v => { S.img.colors = v; persist(); }, v => v);
     buildSeg("i_detail", ["low", "normal", "high"], () => S.img.detail, v => { S.img.detail = v; persist(); }, k => L.details[k]);
@@ -389,12 +449,56 @@ const SF = (function () {
   $("demoBtn").onclick = () => { srcImg = null; refresh(true); };
   $("langBtn").onclick = () => { lang = lang === "fa" ? "en" : "fa"; build(); updateMain(); };
 
+  // ---------- fonts (previews) ----------
+  function buildFonts() {
+    const el = $("fontList"); el.innerHTML = "";
+    fontItems.forEach(it => {
+      const on = it.phone ? S.font_phone === it.file : (!S.font_phone && S.font === it.name);
+      const b = document.createElement("button"); b.className = "fbtn" + (on ? " on" : "");
+      b.innerHTML = '<span class="fname"></span><span class="fsample"></span>';
+      b.children[0].textContent = it.label; b.children[1].textContent = "سلام Sina ۱۲۳";
+      b.children[1].style.fontFamily = '"' + (it.phone ? it.family : it.name) + '", sans-serif';
+      b.onclick = () => { if (it.phone) { S.font_phone = it.file; phoneFamily = it.family; S.font = ""; } else { S.font = it.name; S.font_phone = ""; } haptic(); buildFonts(); refresh(); };
+      el.appendChild(b);
+    });
+  }
+  function addFont(name, label, file) {                  // a font that lives next to this page (fonts/<file>) or only in the bot
+    if (fontItems.some(i => i.name === name)) return;
+    fontItems.push({ name, label });
+    if (file) new FontFace(name, "url(fonts/" + file + ")").load().then(f => { document.fonts.add(f); buildFonts(); refresh(); }).catch(() => {});
+  }
+  async function loadFonts() {
+    try { const list = await (await fetch("fonts.json")).json(); list.forEach(f => addFont(f.name, f.label || f.name, f.file)); } catch (e) { /* page hosted without fonts.json */ }
+    fonts.forEach(n => addFont(n, n.replace(/[-_]/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2")));
+    if (!S.font && !S.font_phone && fontItems.length) S.font = fontItems[0].name;
+    buildFonts(); refresh();
+  }
+  $("fontFile").addEventListener("change", async e => {   // font from the phone: preview here, then send the file to the bot
+    const f = e.target.files && e.target.files[0]; if (!f) return;
+    try {
+      const family = "phone" + Date.now(), face = new FontFace(family, await f.arrayBuffer()); await face.load(); document.fonts.add(face);
+      fontItems.push({ phone: true, file: f.name, family, label: "📱 " + f.name.replace(/\.[^.]+$/, "") });
+      S.font_phone = f.name; phoneFamily = family; S.font = ""; buildFonts(); refresh();
+    } catch (err) { alert("Font error: " + err); }
+  });
+
+  // ---------- theme ----------
+  function applyTheme(mode) {
+    document.documentElement.dataset.theme = mode; $("themeBtn").textContent = mode === "dark" ? "☀️" : "🌙";
+    try { localStorage.setItem("sf_theme", mode); } catch (e) {}
+    try { if (tg) { tg.setHeaderColor(mode === "dark" ? "#17212b" : "#ffffff"); tg.setBackgroundColor(mode === "dark" ? "#17212b" : "#ffffff"); } } catch (e) {}
+  }
+  let saved = null; try { saved = localStorage.getItem("sf_theme"); } catch (e) {}
+  applyTheme(saved || (tg && tg.colorScheme) || (window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
+  $("themeBtn").onclick = () => applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+
   // ---------- send ----------
   function payload() {
     const p = { v: 1, effect: S.effect, fx2: S.fx2 || null, fx3: S.fx3 || null, speed: S.speed, intensity: S.intensity, outline: S.outline,
       text: S.text.trim(), text_pos: S.text_pos, text_x: S.text_x, text_y: S.text_y, text_size: S.text_size, text_color: S.text_color,
-      bg: !!S.bg, fmt: S.fmt, img: S.img };
+      bg: !!S.bg, fmt: S.fmt, img: S.img, text_fx: S.text_fx };
     if (S.font) p.font = S.font;
+    if (S.font_phone) p.font_phone = S.font_phone;
     return JSON.stringify(p);
   }
   function send() {
@@ -405,7 +509,7 @@ const SF = (function () {
   $("sendBtn").onclick = send;
   if (tg) { tg.ready(); tg.expand(); tg.MainButton.onClick(send); updateMain(); } else { $("sendFallback").style.display = "block"; }
 
-  build(); refresh(true); requestAnimationFrame(frame);
+  build(); refresh(true); loadFonts(); requestAnimationFrame(frame);
 })();
 </script>
 </body>
