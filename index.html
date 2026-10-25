@@ -66,8 +66,14 @@
 
 <div class="card"><h2 id="h_text"></h2>
   <input type="text" id="text" maxlength="28" autocomplete="off">
-  <label class="field"><span id="l_size"></span></label><div class="seg" id="tsize"></div>
+  <label class="field"><span id="l_size"></span> <b id="sizeVal"></b></label><div class="seg" id="tsize"></div>
+  <input type="range" id="sizeRange" min="20" max="160" step="1" style="width:100%;margin-top:6px">
+  <label class="field"><span id="l_color"></span></label>
   <div class="swatches" id="colors"></div>
+  <div class="row" style="justify-content:flex-start"><input type="color" id="colorPick" style="width:56px;height:38px;border:0;padding:0;background:none"><span class="note" id="colorHex"></span></div>
+  <label class="field"><span id="l_stroke"></span> <b id="strokeVal"></b></label>
+  <div class="row" style="justify-content:flex-start;gap:10px"><input type="range" id="strokeRange" min="0" max="16" step="1" style="flex:1"><button class="btn alt" id="strokeAuto"></button></div>
+  <div class="row" style="justify-content:flex-start"><input type="color" id="strokeColor" style="width:56px;height:38px;border:0;padding:0;background:none"><button class="btn alt" id="strokeColorAuto"></button></div>
   <label class="field"><span id="l_tfx"></span></label><div class="chips" id="tfx"></div>
   <label class="field"><span id="l_font"></span></label><div class="fonts" id="fontList"></div>
   <div class="row" style="justify-content:flex-start"><label class="btn alt"><input type="file" id="fontFile" accept=".ttf,.otf,.woff,.woff2" hidden><span id="fontPick"></span></label></div>
@@ -187,16 +193,21 @@ const SF = (function () {
   const TEXT_FX = ["sync", "static", "wave", "bend", "marquee", "neon", "typing", "handwriting", "threed"];
   const TEXT_FX_LABELS = {"sync": ["With the picture", "همراه تصویر"], "static": ["Still", "ثابت"], "wave": ["Wave", "موج"], "bend": ["Bend", "خمیدگی"], "marquee": ["Move across", "حرکت در صفحه"], "neon": ["Neon", "نئون"], "typing": ["Typing", "تایپ"], "handwriting": ["Handwriting", "دست‌نویس"], "threed": ["3D", "سه‌بعدی"]};
   const SEPARATE = TEXT_FX.filter(k => k !== "sync"), SINGLE_LINE = ["wave", "bend", "marquee", "typing"];
-  const BEND_AMOUNT = .85, REVEAL_END = .6, HOLD_END = .92;
-  const waveDy = (xn, p, amp) => amp * Math.sin(TAU * (xn * 1.5 - p));
-  const bendDy = (xn, height, amount) => -(amount === undefined ? BEND_AMOUNT : amount) * height * .9 * (1 - Math.pow(2 * xn - 1, 2));
+  const REVEAL_END = .6, HOLD_END = .92;
+  const waveDy = (xn, p, amp) => amp * Math.sin(TAU * (xn * 1.0 - p));
+  const BEND_ANGLE = 1.0;
+  const bendPoint = (px, py, width) => { const r = width / BEND_ANGLE, th = px / r, rho = r - py; return [rho * Math.sin(th), r - rho * Math.cos(th)]; };
+  const HEX = /^#?([0-9a-fA-F]{6})$/;
+  const normalizeColor = (v, allowAuto) => { v = String(v || "").trim().toLowerCase(); if (allowAuto && v === "auto") return "auto"; if (COLORS[v]) return v; const m = HEX.exec(v); return m ? "#" + m[1] : null; };
+  const rgbOf = c => { c = normalizeColor(c) || "white"; return COLORS[c] || [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16)); };
+  const autoStroke = size => Math.max(2, Math.floor(size / 9));
   const marqueeX = (p, width) => CANVAS - p * (CANVAS + width);
   const neonPulse = p => .75 + .25 * Math.sin(TAU * p);
   const revealFraction = p => p >= HOLD_END ? 0 : clamp(p / REVEAL_END, 0, 1);
   const typingFraction = (p, n) => { const f = revealFraction(p); return n > 0 ? Math.floor(f * n + 1e-9) / n : f; };
   const threedAngle = p => Math.PI / 4 + .7 * Math.sin(TAU * p);
   const extrusionDepth = h => Math.max(5, Math.round(h * .14));
-  return { TEXT_FX, TEXT_FX_LABELS, SEPARATE, SINGLE_LINE, waveDy, bendDy, marqueeX, neonPulse, revealFraction, typingFraction, threedAngle, extrusionDepth,
+  return { TEXT_FX, TEXT_FX_LABELS, SEPARATE, SINGLE_LINE, waveDy, bendPoint, BEND_ANGLE, normalizeColor, rgbOf, autoStroke, marqueeX, neonPulse, revealFraction, typingFraction, threedAngle, extrusionDepth,
            EFFECTS, BY_KEY, SPEEDS, INTENSITIES, SIZES, COLORS, CANVAS, OUTLINE_WIDTH, SHADOW_OFFSET,
            build, safeScale, needsRoom, artworkScale, textCentre, captionBox, outlineFor, effectKeys, clamp };
 })();
@@ -212,7 +223,7 @@ const SF = (function () {
     en: { title: "Sticker Forge editor", drag: "Drag on the picture to move the caption", pick: "🖼 Choose image", demo: "Demo",
       fx: "EFFECT", fx2: "Effect 2", fx3: "Effect 3", none: "none", motion: "MOTION", speed: { slow: "🐢 Slow", normal: "Normal", fast: "🐇 Fast" },
       inten: { low: "Soft", normal: "Normal", high: "Strong" }, outline: "OUTLINE", out: { none: "None", white: "⚪ Outline", shadow: "🌑 Shadow" },
-      text: "CAPTION", tfx: "Caption effect", fontPick: "📱 Font from phone", fontNote: "A phone font is previewed here; to render it, also send the font file to the bot as a document.", textPh: "Caption text (optional)", size: "Size", sizes: { small: "S", medium: "M", large: "L", xlarge: "XL" }, font: "Font",
+      text: "CAPTION", color: "Text colour", stroke: "Outline", strokeAuto: "Auto", strokeAutoColor: "Auto colour", tfx: "Caption effect", fontPick: "📱 Font from phone", fontNote: "A phone font is previewed here; to render it, also send the font file to the bot as a document.", textPh: "Caption text (optional)", size: "Size", sizes: { small: "S", medium: "M", large: "L", xlarge: "XL" }, font: "Font",
       pos: "Position", poss: { top: "Top", center: "Middle", bottom: "Bottom" }, posNote: "Position: x={x}, y={y} (drag the caption on the picture)",
       bg: "Remove flat background", on: "On", off: "Off", bgNote: "The preview is approximate; the bot does the real removal.",
       img: "Image settings (PNG/JPG → TGS)", imgNote: "Saved for you. Fewer colours = smaller file.", colors: "Colours", detail: "Detail",
@@ -222,7 +233,7 @@ const SF = (function () {
     fa: { title: "ویرایشگر Sticker Forge", drag: "برای جابه‌جایی متن، روی تصویر بکشید", pick: "🖼 انتخاب تصویر", demo: "نمونه",
       fx: "افکت", fx2: "افکت ۲", fx3: "افکت ۳", none: "ندارد", motion: "حرکت", speed: { slow: "🐢 کند", normal: "عادی", fast: "🐇 تند" },
       inten: { low: "ملایم", normal: "عادی", high: "قوی" }, outline: "حاشیه", out: { none: "ندارد", white: "⚪ حاشیه", shadow: "🌑 سایه" },
-      text: "متن", tfx: "افکت متن", fontPick: "📱 فونت از گوشی", fontNote: "فونت گوشی اینجا پیش‌نمایش می‌شود؛ برای ساخت، فایل فونت را هم به‌صورت Document برای ربات بفرستید.", textPh: "متن روی استیکر (اختیاری)", size: "اندازه", sizes: { small: "کوچک", medium: "متوسط", large: "بزرگ", xlarge: "خیلی بزرگ" }, font: "فونت",
+      text: "متن", color: "رنگ متن", stroke: "حاشیه", strokeAuto: "خودکار", strokeAutoColor: "رنگ خودکار", tfx: "افکت متن", fontPick: "📱 فونت از گوشی", fontNote: "فونت گوشی اینجا پیش‌نمایش می‌شود؛ برای ساخت، فایل فونت را هم به‌صورت Document برای ربات بفرستید.", textPh: "متن روی استیکر (اختیاری)", size: "اندازه", sizes: { small: "کوچک", medium: "متوسط", large: "بزرگ", xlarge: "خیلی بزرگ" }, font: "فونت",
       pos: "جای متن", poss: { top: "بالا", center: "وسط", bottom: "پایین" }, posNote: "موقعیت: x={x}، y={y} (متن را روی تصویر بکشید)",
       bg: "حذف پس‌زمینه‌ی یک‌رنگ", on: "روشن", off: "خاموش", bgNote: "پیش‌نمایش تقریبی است؛ حذف واقعی را ربات انجام می‌دهد.",
       img: "تنظیمات تصویر (PNG/JPG ← TGS)", imgNote: "برای شما ذخیره می‌شود. رنگ کمتر = فایل کوچک‌تر.", colors: "تعداد رنگ", detail: "جزئیات",
@@ -235,7 +246,7 @@ const SF = (function () {
   const fontItems = [];                                                      // {name,label,phone,file,family}
 
   const DEFAULT = { effect: "pulse", fx2: "", fx3: "", speed: "normal", intensity: "normal", outline: "none", text: "", text_pos: "bottom",
-    text_x: 256, text_y: 456, text_size: "large", text_color: "white", text_fx: "sync", font: "", font_phone: "", bg: false, fmt: "webm",
+    text_x: 256, text_y: 456, text_size: "large", text_px: 0, text_color: "white", stroke_w: -1, stroke_color: "auto", text_fx: "sync", font: "", font_phone: "", bg: false, fmt: "webm",
     img: { colors: 8, detail: "normal", speckle: 4, denoise: 0, bg_tol: 36 } };
   let S = JSON.parse(JSON.stringify(DEFAULT));
   try { Object.assign(S, JSON.parse(localStorage.getItem("sf_state") || "{}")); S.font_phone = ""; S.img = Object.assign({}, DEFAULT.img, S.img || {}); } catch (e) {}
@@ -296,7 +307,7 @@ const SF = (function () {
   // ---------- caption ----------
   function layoutText(g, text, boxW, boxH, cap, single) {
     const fam = '"' + (S.font_phone ? phoneFamily : (S.font || "Vazirmatn")) + '", Vazirmatn, Tahoma, "DejaVu Sans", sans-serif';
-    const trial = (lines, size) => { g.font = "bold " + size + "px " + fam; const st = Math.max(2, Math.floor(size / 9));
+    const trial = (lines, size) => { g.font = "bold " + size + "px " + fam; const st = S.stroke_w >= 0 ? S.stroke_w : SF.autoStroke(size);
       const ws = lines.map(l => g.measureText(l).width + 2 * st); return { w: Math.max.apply(null, ws), h: lines.length * size * 1.2 + (lines.length - 1) * 4, st }; };
     const words = text.split(" "), two = [text];
     if (words.length > 1) { let best = null, bd = 1e9; for (let i = 1; i < words.length; i++) { const a = words.slice(0, i).join(" "), b = words.slice(i).join(" "), dd = Math.abs(a.length - b.length); if (dd < bd) { bd = dd; best = [a, b]; } } two = best; }
@@ -304,16 +315,18 @@ const SF = (function () {
       for (let size = cap; size >= 22; size -= 2) { const m = trial(lines, size); if (m.w <= boxW && m.h <= boxH) return { lines, size, fam, st: m.st, w: m.w, h: m.h }; } }
     const m = trial([text], 22); return { lines: [text], size: 22, fam, st: m.st, w: m.w, h: m.h };
   }
+  const maxFont = () => S.text_px || SF.SIZES[S.text_size] || 72;
+  const edgeRgb = rgb => S.stroke_color === "auto" ? SF.outlineFor(rgb) : SF.rgbOf(S.stroke_color);
   const separate = () => SF.SEPARATE.indexOf(S.text_fx) >= 0 && !!S.text.trim();
   function drawCaption(g) {
     const text = S.text.trim(); if (!text || separate()) return;      // a separate caption is drawn per frame instead
-    const o = S, [bw, bh] = SF.captionBox(o), L = layoutText(g, text, bw, bh, SF.SIZES[o.text_size] || 72);
+    const o = S, [bw, bh] = SF.captionBox(o), L = layoutText(g, text, bw, bh, maxFont());
     let [cx, cy] = SF.textCentre(o);
     cx = SF.clamp(cx, L.w / 2, 512 - L.w / 2); cy = SF.clamp(cy, L.h / 2, 512 - L.h / 2);
-    const rgb = SF.COLORS[o.text_color] || SF.COLORS.white, edge = SF.outlineFor(rgb);
+    const rgb = SF.rgbOf(o.text_color), edge = edgeRgb(rgb);
     g.font = "bold " + L.size + "px " + L.fam; g.textAlign = "center"; g.textBaseline = "middle"; g.lineJoin = "round";
     g.lineWidth = L.st * 2; g.strokeStyle = "rgb(" + edge.join(",") + ")"; g.fillStyle = "rgb(" + rgb.join(",") + ")";
-    L.lines.forEach((ln, i) => { const y = cy - L.h / 2 + L.size * 0.6 + i * (L.size * 1.2 + 4); g.strokeText(ln, cx, y); g.fillText(ln, cx, y); });
+    L.lines.forEach((ln, i) => { const y = cy - L.h / 2 + L.size * 0.6 + i * (L.size * 1.2 + 4); if (L.st > 0) g.strokeText(ln, cx, y); g.fillText(ln, cx, y); });
   }
 
   // ---------- page = artwork + outline/shadow + caption (what the bot bakes in) ----------
@@ -338,26 +351,46 @@ const SF = (function () {
 
   // ---------- separately animated caption (preview of engine/textfx.py) ----------
   let cap = null;     // {c: canvas with outline, plain: canvas without, dark: darkened silhouette, w, h, cx, cy, n, rtl}
+  function bendWarp(src) {                    // same polar mapping as engine/textfx.py (static, so computed once)
+    const w = src.width, h = src.height, r = w / SF.BEND_ANGLE, corners = [];
+    for (const x of [-w / 2, 0, w / 2]) for (const y of [-h / 2, h / 2]) corners.push(SF.bendPoint(x, y, w));
+    const x0 = Math.floor(Math.min(...corners.map(c => c[0]))) - 1, x1 = Math.ceil(Math.max(...corners.map(c => c[0]))) + 1;
+    const y0 = Math.floor(Math.min(...corners.map(c => c[1]))) - 1, y1 = Math.ceil(Math.max(...corners.map(c => c[1]))) + 1;
+    const W = x1 - x0, H = y1 - y0, out = document.createElement("canvas"); out.width = W; out.height = H;
+    const sd = src.getContext("2d").getImageData(0, 0, w, h).data, od = out.getContext("2d").createImageData(W, H);
+    const tap = (x, y, k) => (x < 0 || y < 0 || x >= w || y >= h) ? 0 : (k === 3 ? sd[(y * w + x) * 4 + 3] : sd[(y * w + x) * 4 + k] * sd[(y * w + x) * 4 + 3] / 255);
+    for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+      const X = x0 + i + .5, Y = y0 + j + .5, rho = Math.hypot(X, r - Y), th = Math.atan2(X, r - Y), sx = r * th + w / 2 - .5, sy = (r - rho) + h / 2 - .5;
+      const ix = Math.floor(sx), iy = Math.floor(sy), fx = sx - ix, fy = sy - iy, v = [0, 0, 0, 0];
+      for (let k = 0; k < 4; k++) v[k] = tap(ix, iy, k) * (1 - fx) * (1 - fy) + tap(ix + 1, iy, k) * fx * (1 - fy) + tap(ix, iy + 1, k) * (1 - fx) * fy + tap(ix + 1, iy + 1, k) * fx * fy;
+      const o = (j * W + i) * 4, a = v[3]; od.data[o + 3] = a;
+      if (a > 0) for (let k = 0; k < 3; k++) od.data[o + k] = Math.min(255, v[k] * 255 / a);
+    }
+    out.getContext("2d").putImageData(od, 0, 0); return out;
+  }
   function buildCaption() {
     cap = null; if (!separate()) return;
     const o = S, text = o.text.trim(), tmp = mk().getContext("2d"), [bw, bh] = SF.captionBox(o);
-    const L = layoutText(tmp, text, bw, bh, SF.SIZES[o.text_size] || 72, SF.SINGLE_LINE.indexOf(o.text_fx) >= 0);
+    const L = layoutText(tmp, text, bw, bh, maxFont(), SF.SINGLE_LINE.indexOf(o.text_fx) >= 0);
     const pad = L.st + 3, w = Math.ceil(L.w) + 2 * pad, h = Math.ceil(L.h) + 2 * pad;
-    const rgb = SF.COLORS[o.text_color] || SF.COLORS.white, edge = SF.outlineFor(rgb);
+    const rgb = SF.rgbOf(o.text_color), edge = edgeRgb(rgb);
     const draw = (fill, stroke, lw) => { const c = document.createElement("canvas"); c.width = w; c.height = h; const g = c.getContext("2d");
       g.font = "bold " + L.size + "px " + L.fam; g.textAlign = "center"; g.textBaseline = "middle"; g.lineJoin = "round";
-      L.lines.forEach((ln, i) => { const y = pad + L.size * .6 + i * (L.size * 1.2 + 4); if (stroke) { g.lineWidth = lw; g.strokeStyle = stroke; g.strokeText(ln, w / 2, y); } g.fillStyle = fill; g.fillText(ln, w / 2, y); });
+      L.lines.forEach((ln, i) => { const y = pad + L.size * .6 + i * (L.size * 1.2 + 4); if (stroke && lw > 0) { g.lineWidth = lw; g.strokeStyle = stroke; g.strokeText(ln, w / 2, y); } g.fillStyle = fill; g.fillText(ln, w / 2, y); });
       return c; };
     const dark = draw("rgb(" + rgb.map(v => Math.round(v * .45)).join(",") + ")", null, 0);
     let [cx, cy] = SF.textCentre(o); cx = SF.clamp(cx, w / 2, 512 - w / 2); cy = SF.clamp(cy, h / 2, 512 - h / 2);
-    cap = { c: draw("rgb(" + rgb.join(",") + ")", "rgb(" + edge.join(",") + ")", L.st * 2), plain: draw("#fff", null, 0), dark, w, h, cx, cy,
+    let main = draw("rgb(" + rgb.join(",") + ")", "rgb(" + edge.join(",") + ")", L.st * 2), cw = w, ch = h;
+    if (o.text_fx === "bend") { main = bendWarp(main); cw = main.width; ch = main.height; cx = SF.clamp(SF.textCentre(o)[0], cw / 2, 512 - cw / 2); cy = SF.clamp(SF.textCentre(o)[1], ch / 2, 512 - ch / 2); }
+    cap = { c: main, plain: draw("#fff", null, 0), dark, w: cw, h: ch, cx, cy,
             n: Math.max(1, text.replace(/ /g, "").length), rtl: /[\u0600-\u06FF]/.test(text), rgb };
   }
   function drawCaptionFx(g, p) {
     if (!cap) return; const fx = S.text_fx, { c, w, h, cx, cy } = cap, x0 = cx - w / 2, y0 = cy - h / 2;
     if (fx === "static") g.drawImage(c, x0, y0);
-    else if (fx === "wave" || fx === "bend") { const amp = Math.max(4, h * .18);
-      for (let x = 0; x < w; x += 2) { const xn = x / Math.max(1, w - 1), dy = fx === "wave" ? SF.waveDy(xn, p, amp) : SF.bendDy(xn, h); g.drawImage(c, x, 0, 2, h, x0 + x, y0 + dy, 2, h); } }
+    else if (fx === "bend") g.drawImage(c, x0, y0);
+    else if (fx === "wave") { const amp = Math.max(3, h * .12);
+      for (let x = 0; x < w; x++) g.drawImage(c, x, 0, 1.5, h, x0 + x, y0 + SF.waveDy(x / Math.max(1, w - 1), p, amp), 1.5, h); }
     else if (fx === "marquee") g.drawImage(c, SF.marqueeX(p, w), y0);
     else if (fx === "neon") { g.save(); g.shadowColor = "rgb(" + cap.rgb.join(",") + ")"; const k = SF.neonPulse(p);
       for (const b of [10, 22, 36]) { g.shadowBlur = b * k; g.drawImage(cap.plain, x0, y0); } g.restore(); }
@@ -406,7 +439,7 @@ const SF = (function () {
     $("langBtn").textContent = lang === "fa" ? "English" : "فارسی";
     document.title = $("title").textContent = L.title; $("dragHint").textContent = L.drag; $("pickTxt").textContent = L.pick; $("demoBtn").textContent = L.demo;
     $("h_fx").textContent = L.fx; $("l_fx2").textContent = L.fx2; $("l_fx3").textContent = L.fx3; $("h_motion").textContent = L.motion; $("h_outline").textContent = L.outline;
-    $("h_text").textContent = L.text; $("text").placeholder = L.textPh; $("l_size").textContent = L.size; $("l_font").textContent = L.font; $("l_tfx").textContent = L.tfx; $("fontPick").textContent = L.fontPick; $("fontNote").textContent = L.fontNote; $("l_pos").textContent = L.pos;
+    $("h_text").textContent = L.text; $("text").placeholder = L.textPh; $("l_size").textContent = L.size; $("l_color").textContent = L.color; $("l_stroke").textContent = L.stroke; $("strokeAuto").textContent = L.strokeAuto; $("strokeColorAuto").textContent = L.strokeAutoColor; $("l_font").textContent = L.font; $("l_tfx").textContent = L.tfx; $("fontPick").textContent = L.fontPick; $("fontNote").textContent = L.fontNote; $("l_pos").textContent = L.pos;
     $("l_bg").textContent = L.bg; $("bgNote").textContent = L.bgNote; $("h_img").textContent = L.img; $("imgNote").textContent = L.imgNote;
     $("l_colors").textContent = L.colors; $("l_detail").textContent = L.detail; $("l_speckle").textContent = L.speckle; $("l_denoise").textContent = L.denoise; $("l_tol").textContent = L.tol;
     $("h_fmt").textContent = L.fmt; $("fmtNote").textContent = L.fmtNote; $("sendBtn").textContent = L.send; $("text").value = S.text;
@@ -421,7 +454,8 @@ const SF = (function () {
     buildSeg("speed", ["slow", "normal", "fast"], () => S.speed, v => { S.speed = v; refresh(); }, k => L.speed[k]);
     buildSeg("intensity", ["low", "normal", "high"], () => S.intensity, v => { S.intensity = v; refresh(); }, k => L.inten[k]);
     buildSeg("outline", ["none", "white", "shadow"], () => S.outline, v => { S.outline = v; refresh(); }, k => L.out[k]);
-    buildSeg("tsize", ["small", "medium", "large", "xlarge"], () => S.text_size, v => { S.text_size = v; refresh(); }, k => L.sizes[k]);
+    buildSeg("tsize", ["small", "medium", "large", "xlarge"], () => S.text_px ? "" : S.text_size, v => { S.text_size = v; S.text_px = 0; syncControls(); refresh(); }, k => L.sizes[k]);
+    syncControls();
     buildSeg("tpos", ["top", "center", "bottom"], () => S.text_pos, v => { S.text_pos = v; refresh(); }, k => L.poss[k]);
     const sw = $("colors"); sw.innerHTML = "";
     Object.keys(SF.COLORS).forEach(c => { const b = document.createElement("button"); b.className = "sw" + (S.text_color === c ? " on" : ""); b.style.background = "rgb(" + SF.COLORS[c].join(",") + ")";
@@ -448,6 +482,22 @@ const SF = (function () {
   });
   $("demoBtn").onclick = () => { srcImg = null; refresh(true); };
   $("langBtn").onclick = () => { lang = lang === "fa" ? "en" : "fa"; build(); updateMain(); };
+
+  // ---------- manual size / colour / outline controls ----------
+  const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
+  function syncControls() {
+    $("sizeRange").value = maxFont(); $("sizeVal").textContent = maxFont() + "px";
+    $("colorPick").value = hex(SF.rgbOf(S.text_color)); $("colorHex").textContent = hex(SF.rgbOf(S.text_color));
+    const st = S.stroke_w >= 0 ? S.stroke_w : SF.autoStroke(maxFont());
+    $("strokeRange").value = st; $("strokeVal").textContent = (S.stroke_w < 0 ? STR[lang].strokeAuto + " · " : "") + st + "px";
+    $("strokeColor").value = hex(S.stroke_color === "auto" ? SF.outlineFor(SF.rgbOf(S.text_color)) : SF.rgbOf(S.stroke_color));
+  }
+  $("sizeRange").addEventListener("input", e => { S.text_px = +e.target.value; syncControls(); buildSeg("tsize", ["small", "medium", "large", "xlarge"], () => "", () => {}, k => STR[lang].sizes[k]); refresh(); });
+  $("colorPick").addEventListener("input", e => { S.text_color = e.target.value; syncControls(); refresh(); });
+  $("strokeRange").addEventListener("input", e => { S.stroke_w = +e.target.value; syncControls(); refresh(); });
+  $("strokeAuto").onclick = () => { S.stroke_w = -1; syncControls(); refresh(); };
+  $("strokeColor").addEventListener("input", e => { S.stroke_color = e.target.value; syncControls(); refresh(); });
+  $("strokeColorAuto").onclick = () => { S.stroke_color = "auto"; syncControls(); refresh(); };
 
   // ---------- fonts (previews) ----------
   function buildFonts() {
@@ -496,7 +546,7 @@ const SF = (function () {
   function payload() {
     const p = { v: 1, effect: S.effect, fx2: S.fx2 || null, fx3: S.fx3 || null, speed: S.speed, intensity: S.intensity, outline: S.outline,
       text: S.text.trim(), text_pos: S.text_pos, text_x: S.text_x, text_y: S.text_y, text_size: S.text_size, text_color: S.text_color,
-      bg: !!S.bg, fmt: S.fmt, img: S.img, text_fx: S.text_fx };
+      bg: !!S.bg, fmt: S.fmt, img: S.img, text_fx: S.text_fx, text_px: S.text_px, stroke_w: S.stroke_w, stroke_color: S.stroke_color };
     if (S.font) p.font = S.font;
     if (S.font_phone) p.font_phone = S.font_phone;
     return JSON.stringify(p);
