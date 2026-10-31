@@ -39,6 +39,11 @@
   details summary { cursor: pointer; font-weight: 600; color: var(--hint); font-size: 13px; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .toggle { display: flex; justify-content: space-between; align-items: center; }
+  .lrow { display: flex; align-items: center; gap: 8px; background: var(--bg); border-radius: 10px; padding: 5px 8px; }
+  .lrow.on { outline: 2px solid var(--btn); }
+  .lrow canvas { width: 36px; height: 36px; border-radius: 6px; flex: none; margin: 0; }
+  .lrow .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+  .lrow button { border: 0; background: var(--card); color: var(--fg); border-radius: 8px; width: 32px; height: 32px; font: inherit; }
   .note { color: var(--hint); font-size: 12px; margin-top: 6px; }
   #sendFallback { position: fixed; bottom: 0; left: 0; right: 0; padding: 12px 14px calc(12px + env(safe-area-inset-bottom)); background: var(--bg); display: none; }
   #sendFallback button { width: 100%; padding: 13px; font-size: 16px; }
@@ -51,8 +56,9 @@
 <div class="stage">
   <canvas id="cv" width="512" height="512"></canvas>
   <div class="hint" id="dragHint"></div>
+  <div class="seg" id="moveMode" style="max-width:300px;margin:6px auto 0"></div>
   <div class="row">
-    <label class="btn alt" id="pickLbl"><input type="file" id="file" accept="image/*" hidden><span id="pickTxt"></span></label>
+    <label class="btn alt" id="pickLbl"><input type="file" id="file" accept="image/*" multiple hidden><span id="pickTxt"></span></label>
     <button class="btn alt" id="demoBtn"></button>
   </div>
 </div>
@@ -60,6 +66,12 @@
 <div class="card"><h2 id="h_fx"></h2><div class="chips" id="chips"></div>
   <div class="grid2"><label class="field"><span id="l_fx2"></span><select id="fx2"></select></label>
   <label class="field"><span id="l_fx3"></span><select id="fx3"></select></label></div></div>
+
+<div class="card" id="layersCard" style="display:none"><h2 id="h_layers"></h2><div class="note" id="layHint"></div>
+  <div id="layerList" style="display:grid;gap:6px;margin-top:8px"></div>
+  <label class="field"><span id="l_layScale"></span> <b id="layScaleVal"></b></label>
+  <input type="range" id="layScale" min="10" max="300" step="1" style="width:100%">
+  <div class="row" style="justify-content:flex-start"><button class="btn alt" id="layAuto"></button></div></div>
 
 <div class="card"><h2 id="h_motion"></h2><div class="seg" id="speed"></div><div class="seg" id="intensity" style="margin-top:8px"></div></div>
 <div class="card"><h2 id="h_outline"></h2><div class="seg" id="outline"></div></div>
@@ -75,6 +87,8 @@
   <div class="row" style="justify-content:flex-start;gap:10px"><input type="range" id="strokeRange" min="0" max="16" step="1" style="flex:1"><button class="btn alt" id="strokeAuto"></button></div>
   <div class="row" style="justify-content:flex-start"><input type="color" id="strokeColor" style="width:56px;height:38px;border:0;padding:0;background:none"><button class="btn alt" id="strokeColorAuto"></button></div>
   <label class="field"><span id="l_tfx"></span></label><div class="chips" id="tfx"></div>
+  <div class="grid2"><label class="field"><span id="l_tfx2"></span><select id="tfx2"></select></label>
+  <label class="field"><span id="l_tfx3"></span><select id="tfx3"></select></label></div>
   <label class="field"><span id="l_font"></span></label><div class="fonts" id="fontList"></div>
   <div class="row" style="justify-content:flex-start"><label class="btn alt"><input type="file" id="fontFile" accept=".ttf,.otf,.woff,.woff2" hidden><span id="fontPick"></span></label></div>
   <div class="note" id="fontNote"></div>
@@ -158,8 +172,16 @@ const SF = (function () {
     return { fn, duration };
   }
   function safeScale(fn, w, h, samples) {
+    const hw = w / 2, hh = h / 2;
+    return safeScaleCorners(fn, [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]], samples);
+  }
+  /** Same, for a box (x0, y0, x1, y1) in canvas coordinates (several pictures: the visible area is not centred). */
+  function safeScaleBox(fn, box, samples) {
+    const c = CANVAS / 2, [x0, y0, x1, y1] = box;
+    return safeScaleCorners(fn, [[x0 - c, y0 - c], [x1 - c, y0 - c], [x1 - c, y1 - c], [x0 - c, y1 - c]], samples);
+  }
+  function safeScaleCorners(fn, corners, samples) {
     samples = samples || 240;
-    const hw = w / 2, hh = h / 2, corners = [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]];
     const limit = CANVAS / 2 - 1; let best = 1;
     for (let i = 0; i <= samples; i++) {
       const t = fn(i / samples), th = t.rot * Math.PI / 180, c = Math.cos(th), s = Math.sin(th);
@@ -193,6 +215,43 @@ const SF = (function () {
   const TEXT_FX = ["sync", "static", "wave", "bend", "marquee", "neon", "typing", "handwriting", "threed"];
   const TEXT_FX_LABELS = {"sync": ["With the picture", "همراه تصویر"], "static": ["Still", "ثابت"], "wave": ["Wave", "موج"], "bend": ["Bend", "خمیدگی"], "marquee": ["Move across", "حرکت در صفحه"], "neon": ["Neon", "نئون"], "typing": ["Typing", "تایپ"], "handwriting": ["Handwriting", "دست‌نویس"], "threed": ["3D", "سه‌بعدی"]};
   const SEPARATE = TEXT_FX.filter(k => k !== "sync"), SINGLE_LINE = ["wave", "bend", "marquee", "typing"];
+  // ----- up to three caption effects at once (same rules as textfx.clean_slots) -----
+  const STACKABLE = ["wave", "bend", "marquee", "neon", "typing", "handwriting", "threed"], EXCLUSIVE = [["typing", "handwriting"]];
+  function cleanSlots(fx1, fx2, fx3) {
+    let first = TEXT_FX.indexOf(fx1) >= 0 ? fx1 : "sync";
+    const chosen = STACKABLE.indexOf(first) >= 0 ? [first] : [], extras = [];
+    for (const fx of [fx2, fx3]) {
+      if (STACKABLE.indexOf(fx) < 0 || chosen.indexOf(fx) >= 0) continue;
+      if (EXCLUSIVE.some(pr => pr.indexOf(fx) >= 0 && chosen.some(c => pr.indexOf(c) >= 0))) continue;
+      chosen.push(fx); extras.push(fx);
+    }
+    if (extras.length && first === "sync") first = "static";
+    return [first, extras[0] || null, extras[1] || null];
+  }
+  const stackOf = (a, b, c) => cleanSlots(a, b, c).filter(k => STACKABLE.indexOf(k) >= 0);
+  const needsSingleLine = st => st.some(k => SINGLE_LINE.indexOf(k) >= 0);
+  const isSeparate = o => cleanSlots(o.text_fx, o.text_fx2, o.text_fx3)[0] !== "sync";
+  /** effects offered for slot 2 or 3 */
+  function textChoices(o, slot) {
+    const mine = slot === 2 ? o.text_fx2 : o.text_fx3, others = [o.text_fx, o.text_fx2, o.text_fx3].filter(k => k && k !== mine);
+    return STACKABLE.filter(k => others.indexOf(k) < 0 && !EXCLUSIVE.some(pr => pr.indexOf(k) >= 0 && others.some(c => pr.indexOf(c) >= 0)));
+  }
+  // ----- several pictures in one sticker (same rules as engine/layers.py) -----
+  const MAX_LAYERS = 8, MIN_SCALE = .1, MAX_SCALE = 3, POS_MIN = -CANVAS, POS_MAX = 2 * CANVAS;
+  function clampSpec(x, y, s) {
+    const num = (v, d) => { if (v === null || v === undefined || v === "") return d; v = Number(v); return isFinite(v) ? v : d; };
+    return { x: clamp(num(x, CANVAS / 2), POS_MIN, POS_MAX), y: clamp(num(y, CANVAS / 2), POS_MIN, POS_MAX), s: clamp(num(s, 1), MIN_SCALE, MAX_SCALE) };
+  }
+  function autoLayout(n) {
+    if (n <= 0) return [];
+    if (n === 1) return [{ x: CANVAS / 2, y: CANVAS / 2, s: 1 }];
+    const cols = Math.ceil(Math.sqrt(n)), rows = Math.ceil(n / cols), cell = CANVAS / Math.max(cols, rows), out = [];
+    for (let i = 0; i < n; i++) {
+      const r = Math.floor(i / cols), c = i % cols, inRow = r < rows - 1 ? cols : n - cols * (rows - 1);
+      out.push(clampSpec((CANVAS - inRow * cell) / 2 + (c + .5) * cell, (CANVAS - rows * cell) / 2 + (r + .5) * cell, 1 / Math.max(cols, rows)));
+    }
+    return out;
+  }
   const REVEAL_END = .6, HOLD_END = .92;
   const waveDy = (xn, p, amp) => amp * Math.sin(TAU * (xn * 1.0 - p));
   const BEND_ANGLE = 1.0;
@@ -207,7 +266,8 @@ const SF = (function () {
   const typingFraction = (p, n) => { const f = revealFraction(p); return n > 0 ? Math.floor(f * n + 1e-9) / n : f; };
   const threedAngle = p => Math.PI / 4 + .7 * Math.sin(TAU * p);
   const extrusionDepth = h => Math.max(5, Math.round(h * .14));
-  return { TEXT_FX, TEXT_FX_LABELS, SEPARATE, SINGLE_LINE, waveDy, bendPoint, BEND_ANGLE, normalizeColor, rgbOf, autoStroke, marqueeX, neonPulse, revealFraction, typingFraction, threedAngle, extrusionDepth,
+  return { STACKABLE, EXCLUSIVE, cleanSlots, stackOf, needsSingleLine, isSeparate, textChoices, MAX_LAYERS, MIN_SCALE, MAX_SCALE, clampSpec, autoLayout, safeScaleBox,
+           TEXT_FX, TEXT_FX_LABELS, SEPARATE, SINGLE_LINE, waveDy, bendPoint, BEND_ANGLE, normalizeColor, rgbOf, autoStroke, marqueeX, neonPulse, revealFraction, typingFraction, threedAngle, extrusionDepth,
            EFFECTS, BY_KEY, SPEEDS, INTENSITIES, SIZES, COLORS, CANVAS, OUTLINE_WIDTH, SHADOW_OFFSET,
            build, safeScale, needsRoom, artworkScale, textCentre, captionBox, outlineFor, effectKeys, clamp };
 })();
@@ -220,7 +280,7 @@ const SF = (function () {
   const $ = id => document.getElementById(id);
   const qs = new URLSearchParams(location.search);
   const STR = {
-    en: { title: "Sticker Forge editor", drag: "Drag on the picture to move the caption", pick: "🖼 Choose image", demo: "Demo",
+    en: { title: "Sticker Forge editor", drag: "Drag to move · pinch with two fingers to resize the selected picture", pick: "🖼 Choose images", demo: "Demo",
       fx: "EFFECT", fx2: "Effect 2", fx3: "Effect 3", none: "none", motion: "MOTION", speed: { slow: "🐢 Slow", normal: "Normal", fast: "🐇 Fast" },
       inten: { low: "Soft", normal: "Normal", high: "Strong" }, outline: "OUTLINE", out: { none: "None", white: "⚪ Outline", shadow: "🌑 Shadow" },
       text: "CAPTION", color: "Text colour", stroke: "Outline", strokeAuto: "Auto", strokeAutoColor: "Auto colour", tfx: "Caption effect", fontPick: "📱 Font from phone", fontNote: "A phone font is previewed here; to render it, also send the font file to the bot as a document.", textPh: "Caption text (optional)", size: "Size", sizes: { small: "S", medium: "M", large: "L", xlarge: "XL" }, font: "Font",
@@ -229,8 +289,12 @@ const SF = (function () {
       img: "Image settings (PNG/JPG → TGS)", imgNote: "Saved for you. Fewer colours = smaller file.", colors: "Colours", detail: "Detail",
       details: { low: "Low", normal: "Normal", high: "High" }, speckle: "Ignore blobs smaller than (px)", denoise: "Denoise", off2: "Off",
       tol: "Background tolerance", tols: { 18: "Strict", 36: "Normal", 60: "Loose" }, fmt: "OUTPUT FORMAT",
-      fmtNote: "Send your image to the bot first or right after — the bot renders it with these settings.", send: "Send to bot ✅" },
-    fa: { title: "ویرایشگر Sticker Forge", drag: "برای جابه‌جایی متن، روی تصویر بکشید", pick: "🖼 انتخاب تصویر", demo: "نمونه",
+      fmtNote: "Send your image to the bot first or right after — the bot renders it with these settings.", send: "Send to bot ✅",
+      tfx2: "Caption effect 2", tfx3: "Caption effect 3", moveText: "✍️ Move caption", moveImg: "🖼 Move picture", layers: "PICTURES (top first)",
+      layHint: "Tap a picture to select it, drag to move, pinch to resize, ▲▼ to change the order. Afterwards send the same pictures to the bot as files so it can match them.",
+      layScale: "Size of the selected picture", layAuto: "🔄 Auto layout", pic: "Picture {n}",
+      fmtNotes: { webm: "Telegram video sticker.", tgs: "Telegram animated sticker (vector, max 64 KB).", gif: "Transparent GIF (edges are not smooth in GIF). Sent as a file.", webp: "Animated WebP in WhatsApp's sticker size. The bot can build a WhatsApp pack file from several." } },
+    fa: { title: "ویرایشگر Sticker Forge", drag: "برای جابه‌جایی بکشید · با دو انگشت اندازهٔ تصویر انتخاب‌شده را تغییر دهید", pick: "🖼 انتخاب تصویر (چندتایی)", demo: "نمونه",
       fx: "افکت", fx2: "افکت ۲", fx3: "افکت ۳", none: "ندارد", motion: "حرکت", speed: { slow: "🐢 کند", normal: "عادی", fast: "🐇 تند" },
       inten: { low: "ملایم", normal: "عادی", high: "قوی" }, outline: "حاشیه", out: { none: "ندارد", white: "⚪ حاشیه", shadow: "🌑 سایه" },
       text: "متن", color: "رنگ متن", stroke: "حاشیه", strokeAuto: "خودکار", strokeAutoColor: "رنگ خودکار", tfx: "افکت متن", fontPick: "📱 فونت از گوشی", fontNote: "فونت گوشی اینجا پیش‌نمایش می‌شود؛ برای ساخت، فایل فونت را هم به‌صورت Document برای ربات بفرستید.", textPh: "متن روی استیکر (اختیاری)", size: "اندازه", sizes: { small: "کوچک", medium: "متوسط", large: "بزرگ", xlarge: "خیلی بزرگ" }, font: "فونت",
@@ -239,14 +303,18 @@ const SF = (function () {
       img: "تنظیمات تصویر (PNG/JPG ← TGS)", imgNote: "برای شما ذخیره می‌شود. رنگ کمتر = فایل کوچک‌تر.", colors: "تعداد رنگ", detail: "جزئیات",
       details: { low: "کم", normal: "عادی", high: "زیاد" }, speckle: "نادیده گرفتن لکه‌های کوچک‌تر از (پیکسل)", denoise: "نویززدایی", off2: "خاموش",
       tol: "تلرانس پس‌زمینه", tols: { 18: "سخت‌گیرانه", 36: "عادی", 60: "آزاد" }, fmt: "فرمت خروجی",
-      fmtNote: "تصویر را قبل یا بعد از این به ربات بفرستید — ربات با همین تنظیمات می‌سازد.", send: "ارسال به ربات ✅" },
+      fmtNote: "تصویر را قبل یا بعد از این به ربات بفرستید — ربات با همین تنظیمات می‌سازد.", send: "ارسال به ربات ✅",
+      tfx2: "افکت متن ۲", tfx3: "افکت متن ۳", moveText: "✍️ جابه‌جایی متن", moveImg: "🖼 جابه‌جایی تصویر", layers: "تصویرها (بالاترین اول)",
+      layHint: "روی تصویر بزنید تا انتخاب شود؛ بکشید تا جابه‌جا شود، با دو انگشت اندازه‌اش را تغییر دهید، با ▲▼ ترتیب را عوض کنید. بعد همین تصویرها را به‌صورت فایل برای ربات بفرستید تا با هم تطبیق داده شوند.",
+      layScale: "اندازهٔ تصویر انتخاب‌شده", layAuto: "🔄 چیدمان خودکار", pic: "تصویر {n}",
+      fmtNotes: { webm: "استیکر ویدیویی تلگرام.", tgs: "استیکر متحرک تلگرام (برداری، حداکثر ۶۴ کیلوبایت).", gif: "GIF با پس‌زمینهٔ شفاف (لبه‌ها در GIF نرم نیست). به‌صورت فایل فرستاده می‌شود.", webp: "WebP متحرک با اندازهٔ استیکر واتساپ. ربات می‌تواند از چند تا فایل بستهٔ واتساپ بسازد." } },
   };
   let lang = (qs.get("lang") || (tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.language_code) || "en").slice(0, 2) === "fa" ? "fa" : "en";
   const fonts = (qs.get("fonts") || "").split(",").filter(Boolean);        // fonts the bot has
   const fontItems = [];                                                      // {name,label,phone,file,family}
 
   const DEFAULT = { effect: "pulse", fx2: "", fx3: "", speed: "normal", intensity: "normal", outline: "none", text: "", text_pos: "bottom",
-    text_x: 256, text_y: 456, text_size: "large", text_px: 0, text_color: "white", stroke_w: -1, stroke_color: "auto", text_fx: "sync", font: "", font_phone: "", bg: false, fmt: "webm",
+    text_x: 256, text_y: 456, text_size: "large", text_px: 0, text_color: "white", stroke_w: -1, stroke_color: "auto", text_fx: "sync", text_fx2: "", text_fx3: "", font: "", font_phone: "", bg: false, fmt: "webm",
     img: { colors: 8, detail: "normal", speckle: 4, denoise: 0, bg_tol: 36 } };
   let S = JSON.parse(JSON.stringify(DEFAULT));
   try { Object.assign(S, JSON.parse(localStorage.getItem("sf_state") || "{}")); S.font_phone = ""; S.img = Object.assign({}, DEFAULT.img, S.img || {}); } catch (e) {}
@@ -254,11 +322,12 @@ const SF = (function () {
   if (ip.length === 5) S.img = { colors: +ip[0], detail: ip[1], speckle: +ip[2], denoise: +ip[3], bg_tol: +ip[4] };
   if (!SF.BY_KEY[S.effect]) S.effect = "pulse";
   if (SF.TEXT_FX.indexOf(S.text_fx) < 0) S.text_fx = "sync";
+  normSlots();
 
   // ---------- artwork ----------
   const cv = $("cv"), ctx = cv.getContext("2d");
   let phoneFamily = "";                                  // font family of a font picked from the phone
-  let srcImg = null, art = null, page = null, effect = null, safe = 1;
+  let art = null, page = null, effect = null, safe = 1;
   const mk = () => { const c = document.createElement("canvas"); c.width = c.height = 512; return c; };
 
   function demoArt() {
@@ -298,10 +367,50 @@ const SF = (function () {
     }
     g.putImageData(id, 0, 0);
   }
+  // ----- several pictures (layers, bottom -> top) -----
+  const layersL = [];            // {name, fit:{canvas,w,h}, work, workKey, h, x, y, s, auto}
+  let selL = -1, interacting = false, holdUntil = 0, moveMode = "text";
+  function normSlots() { const r = SF.cleanSlots(S.text_fx, S.text_fx2, S.text_fx3); S.text_fx = r[0]; S.text_fx2 = r[1] || ""; S.text_fx3 = r[2] || ""; }
+  function relayout() { const g = SF.autoLayout(layersL.length); layersL.forEach((l, i) => { if (l.auto) Object.assign(l, g[i]); }); }
+  async function hash8(file) {
+    try { const d = new Uint8Array(await crypto.subtle.digest("SHA-256", await file.arrayBuffer())); return Array.from(d.slice(0, 4)).map(v => v.toString(16).padStart(2, "0")).join(""); }
+    catch (e) { return ""; }
+  }
+  function loadImage(file) { return new Promise((res, rej) => { const url = URL.createObjectURL(file), im = new Image(); im.onload = () => { res(im); URL.revokeObjectURL(url); }; im.onerror = rej; im.src = url; }); }
+  async function addFiles(files) {
+    for (const f of Array.from(files)) {
+      if (layersL.length >= SF.MAX_LAYERS) break;
+      try {
+        const im = await loadImage(f), fit = fitArt(im);
+        layersL.push({ name: f.name.slice(0, 24), fit, work: fit.canvas, workKey: "", h: await hash8(f), x: 256, y: 256, s: 1, auto: true });
+      } catch (e) { /* not an image the browser can read */ }
+    }
+    relayout(); selL = layersL.length - 1; moveMode = "image"; buildMove(); buildLayers(); refresh(true);
+  }
+  function alphaBox(c) {
+    const d = c.getContext("2d").getImageData(0, 0, 512, 512).data; let x0 = 512, y0 = 512, x1 = -1, y1 = -1;
+    for (let y = 0; y < 512; y++) for (let x = 0; x < 512; x++) if (d[(y * 512 + x) * 4 + 3] > 8) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    return x1 < 0 ? [0, 0, 512, 512] : [x0, y0, x1 + 1, y1 + 1];
+  }
   function loadArt() {
-    const base = srcImg ? fitArt(srcImg) : demoArt();
-    if (S.bg && !base.demo) removeBg(base, S.img.bg_tol);
-    art = base;
+    if (!layersL.length) { art = demoArt(); art.box = [66, 66, 446, 446]; return; }
+    const c = mk(), g = c.getContext("2d");
+    for (const l of layersL) {
+      const key = S.bg + ":" + S.img.bg_tol;
+      if (l.workKey !== key) {                              // background removal is slow: redo it only when its settings change
+        l.work = l.fit.canvas; l.workKey = key;
+        if (S.bg) { const w = mk(); w.getContext("2d").drawImage(l.fit.canvas, 0, 0); removeBg({ canvas: w, w: l.fit.w, h: l.fit.h }, S.img.bg_tol); l.work = w; }
+      }
+      const w = l.fit.w, h = l.fit.h;
+      g.drawImage(l.work, Math.round((512 - w) / 2), Math.round((512 - h) / 2), w, h, l.x - w * l.s / 2, l.y - h * l.s / 2, w * l.s, h * l.s);
+    }
+    art = { canvas: c, w: 512, h: 512, demo: false, box: alphaBox(c) };
+  }
+  /** where the artwork canvas sits on the page (outline / caption band shrink it) */
+  function artRect() {
+    if (!SF.needsRoom(S)) return { x0: 0, y0: 0, n: 512 };
+    const { f, cy } = SF.artworkScale(S), n = Math.max(1, Math.round(512 * f));
+    return { x0: Math.floor((512 - n) / 2), y0: Math.round(cy - n / 2), n };
   }
 
   // ---------- caption ----------
@@ -317,7 +426,7 @@ const SF = (function () {
   }
   const maxFont = () => S.text_px || SF.SIZES[S.text_size] || 72;
   const edgeRgb = rgb => S.stroke_color === "auto" ? SF.outlineFor(rgb) : SF.rgbOf(S.stroke_color);
-  const separate = () => SF.SEPARATE.indexOf(S.text_fx) >= 0 && !!S.text.trim();
+  const separate = () => SF.isSeparate(S) && !!S.text.trim();
   function drawCaption(g) {
     const text = S.text.trim(); if (!text || separate()) return;      // a separate caption is drawn per frame instead
     const o = S, [bw, bh] = SF.captionBox(o), L = layoutText(g, text, bw, bh, maxFont());
@@ -344,19 +453,21 @@ const SF = (function () {
   }
   function rebuildEffect() {
     effect = SF.build(S);
-    const s = art ? Math.max(art.w, art.h) : 400, scale = SF.needsRoom(S) ? SF.artworkScale(S).f : 1;
-    safe = SF.safeScale(effect.fn, art.w * scale, art.h * scale);
+    const r = artRect(), bx = art.box, k = r.n / 512;
+    safe = SF.safeScaleBox(effect.fn, [r.x0 + bx[0] * k, r.y0 + bx[1] * k, r.x0 + bx[2] * k, r.y0 + bx[3] * k]);
   }
   function refresh(full) { if (full) loadArt(); composePage(); buildCaption(); rebuildEffect(); posNote(); persist(); }
 
-  // ---------- separately animated caption (preview of engine/textfx.py) ----------
-  let cap = null;     // {c: canvas with outline, plain: canvas without, dark: darkened silhouette, w, h, cx, cy, n, rtl}
+  // ---------- separately animated caption (preview of engine/textfx.py; up to three effects together) ----------
+  let cap = null;     // {flat, base (bent or flat), plain, dark, fw, fh, w, h, cx, cy, n, rtl, rgb, has}
+  const mk2 = (w, h) => { const c = document.createElement("canvas"); c.width = Math.max(1, w); c.height = Math.max(1, h); return c; };
+  const silo = (src, color) => { const c = mk2(src.width, src.height), g = c.getContext("2d"); g.drawImage(src, 0, 0); g.globalCompositeOperation = "source-in"; g.fillStyle = color; g.fillRect(0, 0, c.width, c.height); return c; };
   function bendWarp(src) {                    // same polar mapping as engine/textfx.py (static, so computed once)
     const w = src.width, h = src.height, r = w / SF.BEND_ANGLE, corners = [];
     for (const x of [-w / 2, 0, w / 2]) for (const y of [-h / 2, h / 2]) corners.push(SF.bendPoint(x, y, w));
     const x0 = Math.floor(Math.min(...corners.map(c => c[0]))) - 1, x1 = Math.ceil(Math.max(...corners.map(c => c[0]))) + 1;
     const y0 = Math.floor(Math.min(...corners.map(c => c[1]))) - 1, y1 = Math.ceil(Math.max(...corners.map(c => c[1]))) + 1;
-    const W = x1 - x0, H = y1 - y0, out = document.createElement("canvas"); out.width = W; out.height = H;
+    const W = x1 - x0, H = y1 - y0, out = mk2(W, H);
     const sd = src.getContext("2d").getImageData(0, 0, w, h).data, od = out.getContext("2d").createImageData(W, H);
     const tap = (x, y, k) => (x < 0 || y < 0 || x >= w || y >= h) ? 0 : (k === 3 ? sd[(y * w + x) * 4 + 3] : sd[(y * w + x) * 4 + k] * sd[(y * w + x) * 4 + 3] / 255);
     for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
@@ -366,43 +477,66 @@ const SF = (function () {
       const o = (j * W + i) * 4, a = v[3]; od.data[o + 3] = a;
       if (a > 0) for (let k = 0; k < 3; k++) od.data[o + k] = Math.min(255, v[k] * 255 / a);
     }
-    out.getContext("2d").putImageData(od, 0, 0); return out;
+    out.getContext("2d").putImageData(od, 0, 0); out._ox = x0; out._oy = y0; out._r = r; return out;
   }
   function buildCaption() {
     cap = null; if (!separate()) return;
-    const o = S, text = o.text.trim(), tmp = mk().getContext("2d"), [bw, bh] = SF.captionBox(o);
-    const L = layoutText(tmp, text, bw, bh, maxFont(), SF.SINGLE_LINE.indexOf(o.text_fx) >= 0);
+    const o = S, text = o.text.trim(), st = SF.stackOf(o.text_fx, o.text_fx2, o.text_fx3), has = new Set(st);
+    const tmp = mk().getContext("2d"), [bw, bh] = SF.captionBox(o);
+    const L = layoutText(tmp, text, bw, bh, maxFont(), SF.needsSingleLine(st));
     const pad = L.st + 3, w = Math.ceil(L.w) + 2 * pad, h = Math.ceil(L.h) + 2 * pad;
-    const rgb = SF.rgbOf(o.text_color), edge = edgeRgb(rgb);
-    const draw = (fill, stroke, lw) => { const c = document.createElement("canvas"); c.width = w; c.height = h; const g = c.getContext("2d");
+    const rgb = SF.rgbOf(o.text_color), edge = edgeRgb(rgb), neon = has.has("neon");
+    const draw = (fill, stroke, lw) => { const c = mk2(w, h), g = c.getContext("2d");
       g.font = "bold " + L.size + "px " + L.fam; g.textAlign = "center"; g.textBaseline = "middle"; g.lineJoin = "round";
       L.lines.forEach((ln, i) => { const y = pad + L.size * .6 + i * (L.size * 1.2 + 4); if (stroke && lw > 0) { g.lineWidth = lw; g.strokeStyle = stroke; g.strokeText(ln, w / 2, y); } g.fillStyle = fill; g.fillText(ln, w / 2, y); });
       return c; };
-    const dark = draw("rgb(" + rgb.map(v => Math.round(v * .45)).join(",") + ")", null, 0);
-    let [cx, cy] = SF.textCentre(o); cx = SF.clamp(cx, w / 2, 512 - w / 2); cy = SF.clamp(cy, h / 2, 512 - h / 2);
-    let main = draw("rgb(" + rgb.join(",") + ")", "rgb(" + edge.join(",") + ")", L.st * 2), cw = w, ch = h;
-    if (o.text_fx === "bend") { main = bendWarp(main); cw = main.width; ch = main.height; cx = SF.clamp(SF.textCentre(o)[0], cw / 2, 512 - cw / 2); cy = SF.clamp(SF.textCentre(o)[1], ch / 2, 512 - ch / 2); }
-    cap = { c: main, plain: draw("#fff", null, 0), dark, w: cw, h: ch, cx, cy,
-            n: Math.max(1, text.replace(/ /g, "").length), rtl: /[\u0600-\u06FF]/.test(text), rgb };
+    const flat = neon ? draw("rgb(" + rgb.join(",") + ")", null, 0) : draw("rgb(" + rgb.join(",") + ")", "rgb(" + edge.join(",") + ")", L.st * 2);
+    const base = has.has("bend") ? bendWarp(flat) : flat;
+    let [cx, cy] = SF.textCentre(o); cx = SF.clamp(cx, base.width / 2, 512 - base.width / 2); cy = SF.clamp(cy, base.height / 2, 512 - base.height / 2);
+    cap = { flat, base, plain: silo(base, "#fff"), dark: silo(base, "rgb(" + rgb.map(v => Math.round(v * .45)).join(",") + ")"), fw: w, fh: h, w: base.width, h: base.height, cx, cy,
+            n: Math.max(1, text.replace(/ /g, "").length), rtl: /[\u0600-\u06FF]/.test(text), rgb, has };
   }
   function drawCaptionFx(g, p) {
-    if (!cap) return; const fx = S.text_fx, { c, w, h, cx, cy } = cap, x0 = cx - w / 2, y0 = cy - h / 2;
-    if (fx === "static") g.drawImage(c, x0, y0);
-    else if (fx === "bend") g.drawImage(c, x0, y0);
-    else if (fx === "wave") { const amp = Math.max(3, h * .12);
-      for (let x = 0; x < w; x++) g.drawImage(c, x, 0, 1.5, h, x0 + x, y0 + SF.waveDy(x / Math.max(1, w - 1), p, amp), 1.5, h); }
-    else if (fx === "marquee") g.drawImage(c, SF.marqueeX(p, w), y0);
-    else if (fx === "neon") { g.save(); g.shadowColor = "rgb(" + cap.rgb.join(",") + ")"; const k = SF.neonPulse(p);
-      for (const b of [10, 22, 36]) { g.shadowBlur = b * k; g.drawImage(cap.plain, x0, y0); } g.restore(); }
-    else if (fx === "typing" || fx === "handwriting") { const f = fx === "typing" ? SF.typingFraction(p, cap.n) : SF.revealFraction(p); if (f <= 0) return;
-      const cut = Math.round(w * f); g.save(); g.beginPath(); if (cap.rtl) g.rect(x0 + w - cut, y0, cut, h); else g.rect(x0, y0, cut, h); g.clip(); g.drawImage(c, x0, y0); g.restore();
-      if (fx === "typing" && f < 1 && Math.floor(p * 10) % 2 === 0) { g.fillStyle = "rgb(" + cap.rgb.join(",") + ")"; g.fillRect((cap.rtl ? x0 + w - cut : x0 + cut) - 1, y0, 3, h); } }
-    else if (fx === "threed") { const th = SF.threedAngle(p), d = SF.extrusionDepth(h); for (let k = d; k > 0; k--) g.drawImage(cap.dark, x0 + k * Math.cos(th), y0 + k * Math.sin(th)); g.drawImage(c, x0, y0); }
+    if (!cap) return;
+    const has = cap.has, W = cap.w, H = cap.h, fw = cap.fw, fh = cap.fh, bent = has.has("bend"), wave = has.has("wave");
+    let rev = cap.base, wedge = null;
+    // 1. reveal (on the flat caption; a bent caption is cut along an angle instead)
+    if (has.has("typing") || has.has("handwriting")) {
+      const typing = has.has("typing"), f = typing ? SF.typingFraction(p, cap.n) : SF.revealFraction(p); if (f <= 0) return;
+      const cut = Math.round(fw * f);
+      if (!bent) {
+        rev = mk2(fw, fh); const rg = rev.getContext("2d"); rg.save(); rg.beginPath();
+        if (cap.rtl) rg.rect(fw - cut, 0, cut, fh); else rg.rect(0, 0, cut, fh);
+        rg.clip(); rg.drawImage(cap.base, 0, 0); rg.restore();
+        if (typing && f < 1 && Math.floor(p * 10) % 2 === 0) { rg.fillStyle = "rgb(" + cap.rgb.join(",") + ")"; rg.fillRect((cap.rtl ? fw - cut : cut) - 1, 0, 3, fh); }
+      } else {
+        const r = cap.base._r, th1 = cap.rtl ? (fw - cut - fw / 2) / r : -fw / (2 * r) - .05, th2 = cap.rtl ? fw / (2 * r) + .05 : (cut - fw / 2) / r;
+        wedge = [-cap.base._ox, r - cap.base._oy, th1, th2];
+      }
+    }
+    // 2. warp: wave over the (bent) caption
+    const amp = Math.max(3, fh * .12), pad = wave ? Math.ceil(amp) + 2 : 0, fr = mk2(W, H + 2 * pad), fg = fr.getContext("2d");
+    fg.save();
+    if (wedge) { const R = 3000, [cx0, cy0, a1, a2] = wedge; fg.beginPath(); fg.moveTo(cx0, cy0 + pad); fg.lineTo(cx0 + R * Math.sin(a1), cy0 + pad - R * Math.cos(a1)); fg.lineTo(cx0 + R * Math.sin(a2), cy0 + pad - R * Math.cos(a2)); fg.closePath(); fg.clip(); }
+    if (wave) for (let x = 0; x < W; x++) fg.drawImage(rev, x, 0, 1.5, H, x, pad + SF.waveDy(x / Math.max(1, W - 1), p, amp), 1.5, H);
+    else fg.drawImage(rev, 0, pad);
+    fg.restore();
+    // 3. position
+    let ax = cap.cx; const ay = cap.cy; if (has.has("marquee")) ax = SF.marqueeX(p, fw) + W / 2;
+    const x0 = ax - W / 2, y0 = ay - (H + 2 * pad) / 2, cached = rev === cap.base && !wave && !wedge;
+    // 4. look: neon glow, 3D extrusion, then the face
+    const needPlain = has.has("neon"), plain = needPlain ? (cached ? cap.plain : silo(fr, "#fff")) : null;
+    if (has.has("neon")) { g.save(); g.shadowColor = "rgb(" + cap.rgb.join(",") + ")"; const k = SF.neonPulse(p); for (const b of [10, 22, 36]) { g.shadowBlur = b * k; g.drawImage(plain, x0, y0); } g.restore(); }
+    if (has.has("threed")) { const th = SF.threedAngle(p), d = SF.extrusionDepth(fh), dark = cached ? cap.dark : silo(fr, "rgb(" + cap.rgb.map(v => Math.round(v * .45)).join(",") + ")");
+      for (let k = d; k > 0; k--) g.drawImage(dark, x0 + k * Math.cos(th), y0 + k * Math.sin(th)); }
+    g.drawImage(needPlain ? plain : fr, x0, y0);
   }
 
   // ---------- animation ----------
   function frame(ts) {
-    if (page && effect) {
+    if (page && effect && (interacting || performance.now() < holdUntil)) {          // editing: show the still page with a frame round the picture
+      ctx.clearRect(0, 0, 512, 512); ctx.drawImage(page, 0, 0); if (cap) drawCaptionFx(ctx, .6); drawSel();
+    } else if (page && effect) {
       const t = effect.fn(((ts / 1000) / effect.duration) % 1);
       ctx.clearRect(0, 0, 512, 512); ctx.save();
       ctx.globalAlpha = t.opacity; ctx.translate(256 + t.dx, 256 + t.dy); ctx.rotate(t.rot * Math.PI / 180); ctx.scale(t.sx * safe, t.sy * safe);
@@ -412,17 +546,77 @@ const SF = (function () {
     requestAnimationFrame(frame);
   }
 
-  // ---------- drag the caption ----------
-  let dragging = false;
-  function moveTo(e) {
+  // ---------- drag the caption / drag + pinch the pictures ----------
+  const ptrs = new Map(); let gesture = null;
+  const canvasPt = e => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) / r.width * 512, (e.clientY - r.top) / r.height * 512]; };
+  const toArt = (px, py) => { const a = artRect(); return [(px - a.x0) * 512 / a.n, (py - a.y0) * 512 / a.n]; };
+  function hitLayer(ax, ay) {
+    for (let i = layersL.length - 1; i >= 0; i--) {
+      const l = layersL[i], w = l.fit.w * l.s, h = l.fit.h * l.s;
+      if (Math.abs(ax - l.x) > w / 2 || Math.abs(ay - l.y) > h / 2) continue;
+      const fx = Math.min(511, Math.max(0, Math.round((512 - l.fit.w) / 2 + (ax - (l.x - w / 2)) / l.s))), fy = Math.min(511, Math.max(0, Math.round((512 - l.fit.h) / 2 + (ay - (l.y - h / 2)) / l.s)));
+      if (l.work.getContext("2d").getImageData(fx, fy, 1, 1).data[3] > 16) return i;
+    }
+    return -1;
+  }
+  function drawSel() {
+    if (selL < 0 || selL >= layersL.length) return;
+    const l = layersL[selL], a = artRect(), k = a.n / 512, w = l.fit.w * l.s * k, h = l.fit.h * l.s * k;
+    ctx.save(); ctx.strokeStyle = "#00e5ff"; ctx.lineWidth = 2; ctx.setLineDash([6, 4]); ctx.strokeRect(a.x0 + l.x * k - w / 2, a.y0 + l.y * k - h / 2, w, h); ctx.restore();
+  }
+  function moveCaption(e) {
     if (!S.text.trim()) return;
-    const r = cv.getBoundingClientRect();
-    S.text_pos = "custom"; S.text_x = Math.round(SF.clamp((e.clientX - r.left) / r.width * 512, 0, 512)); S.text_y = Math.round(SF.clamp((e.clientY - r.top) / r.height * 512, 0, 512));
+    const [px, py] = canvasPt(e);
+    S.text_pos = "custom"; S.text_x = Math.round(SF.clamp(px, 0, 512)); S.text_y = Math.round(SF.clamp(py, 0, 512));
     composePage(); buildCaption(); posNote(); buildSeg("tpos", ["top", "center", "bottom"], () => S.text_pos, v => { S.text_pos = v; refresh(); }, k => STR[lang].poss[k]); persist();
   }
-  cv.addEventListener("pointerdown", e => { dragging = true; cv.setPointerCapture(e.pointerId); moveTo(e); });
-  cv.addEventListener("pointermove", e => { if (dragging) moveTo(e); });
-  cv.addEventListener("pointerup", () => { dragging = false; });
+  const dist = () => { const [a, b] = Array.from(ptrs.values()); return Math.hypot(a[0] - b[0], a[1] - b[1]) || 1; };
+  function layerChanged() { loadArt(); composePage(); rebuildEffect(); buildLayers(true); }
+  cv.addEventListener("pointerdown", e => {
+    cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, canvasPt(e)); interacting = true;
+    if (ptrs.size === 2 && selL >= 0) { gesture = { type: "pinch", d0: dist(), s0: layersL[selL].s }; return; }
+    if (moveMode === "image" && layersL.length) {
+      const [ax, ay] = toArt(...ptrs.get(e.pointerId)), hit = hitLayer(ax, ay); if (hit >= 0) { selL = hit; buildLayers(); }
+      if (selL >= 0) gesture = { type: "drag", id: e.pointerId, sx: ax, sy: ay, lx: layersL[selL].x, ly: layersL[selL].y };
+    } else { gesture = { type: "caption" }; moveCaption(e); }
+  });
+  cv.addEventListener("pointermove", e => {
+    if (!ptrs.has(e.pointerId)) return; ptrs.set(e.pointerId, canvasPt(e));
+    if (!gesture) return;
+    if (gesture.type === "pinch" && ptrs.size >= 2) { const l = layersL[selL]; l.s = SF.clampSpec(l.x, l.y, gesture.s0 * dist() / gesture.d0).s; l.auto = false; layerChanged(); }
+    else if (gesture.type === "drag" && e.pointerId === gesture.id) { const [ax, ay] = toArt(...ptrs.get(e.pointerId)), l = layersL[selL];
+      const sp = SF.clampSpec(gesture.lx + ax - gesture.sx, gesture.ly + ay - gesture.sy, l.s); l.x = sp.x; l.y = sp.y; l.auto = false; layerChanged(); }
+    else if (gesture.type === "caption") moveCaption(e);
+  });
+  const up = e => { ptrs.delete(e.pointerId); if (ptrs.size === 0) { interacting = false; gesture = null; holdUntil = performance.now() + 1200; } else if (ptrs.size === 1) gesture = null; };
+  cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
+  cv.addEventListener("wheel", e => { if (selL < 0) return; e.preventDefault(); const l = layersL[selL]; l.s = SF.clampSpec(l.x, l.y, l.s * (e.deltaY < 0 ? 1.06 : 1 / 1.06)).s; l.auto = false; holdUntil = performance.now() + 1200; layerChanged(); }, { passive: false });
+
+  // ---------- pictures panel ----------
+  function buildMove() {
+    const L = STR[lang]; $("moveMode").style.display = layersL.length ? "" : "none";
+    buildSeg("moveMode", ["image", "text"], () => moveMode, v => { moveMode = v; }, k => k === "image" ? L.moveImg : L.moveText);
+  }
+  function buildLayers(light) {
+    const L = STR[lang], card = $("layersCard"), list = $("layerList"); card.style.display = layersL.length ? "" : "none";
+    if (!layersL.length) return;
+    if (light) { syncLayScale(); return; }
+    list.innerHTML = "";
+    for (let i = layersL.length - 1; i >= 0; i--) {
+      const l = layersL[i], row = document.createElement("div"); row.className = "lrow" + (i === selL ? " on" : "");
+      const th = mk2(36, 36); th.getContext("2d").drawImage(l.work, 0, 0, 512, 512, 0, 0, 36, 36); row.appendChild(th);
+      const nm = document.createElement("span"); nm.className = "nm"; nm.textContent = (layersL.length - i) + ". " + (l.name || L.pic.replace("{n}", i + 1)); row.appendChild(nm);
+      const btn = (t, fn) => { const b = document.createElement("button"); b.textContent = t; b.onclick = ev => { ev.stopPropagation(); fn(); }; row.appendChild(b); };
+      btn("▲", () => moveLayer(i, 1)); btn("▼", () => moveLayer(i, -1)); btn("✕", () => { layersL.splice(i, 1); if (selL >= layersL.length) selL = layersL.length - 1; relayout(); buildMove(); buildLayers(); refresh(true); });
+      row.onclick = () => { selL = i; holdUntil = performance.now() + 1500; buildLayers(); };
+      list.appendChild(row);
+    }
+    syncLayScale();
+  }
+  function moveLayer(i, d) { const j = i + d; if (j < 0 || j >= layersL.length) return; [layersL[i], layersL[j]] = [layersL[j], layersL[i]]; if (selL === i) selL = j; else if (selL === j) selL = i; buildLayers(); refresh(true); }
+  function syncLayScale() { const l = layersL[selL]; $("layScale").disabled = !l; if (l) { $("layScale").value = Math.round(l.s * 100); $("layScaleVal").textContent = Math.round(l.s * 100) + "%"; } }
+  $("layScale").addEventListener("input", e => { const l = layersL[selL]; if (!l) return; l.s = SF.clampSpec(l.x, l.y, +e.target.value / 100).s; l.auto = false; holdUntil = performance.now() + 1200; layerChanged(); });
+  $("layAuto").onclick = () => { layersL.forEach(l => l.auto = true); relayout(); buildLayers(); refresh(true); };
 
   // ---------- UI ----------
   function buildSeg(id, values, get, set, label) {
@@ -438,11 +632,12 @@ const SF = (function () {
     const L = STR[lang]; document.documentElement.lang = lang; document.documentElement.dir = lang === "fa" ? "rtl" : "ltr";
     $("langBtn").textContent = lang === "fa" ? "English" : "فارسی";
     document.title = $("title").textContent = L.title; $("dragHint").textContent = L.drag; $("pickTxt").textContent = L.pick; $("demoBtn").textContent = L.demo;
+    $("h_layers").textContent = L.layers; $("layHint").textContent = L.layHint; $("l_layScale").textContent = L.layScale; $("layAuto").textContent = L.layAuto; $("l_tfx2").textContent = L.tfx2; $("l_tfx3").textContent = L.tfx3;
     $("h_fx").textContent = L.fx; $("l_fx2").textContent = L.fx2; $("l_fx3").textContent = L.fx3; $("h_motion").textContent = L.motion; $("h_outline").textContent = L.outline;
     $("h_text").textContent = L.text; $("text").placeholder = L.textPh; $("l_size").textContent = L.size; $("l_color").textContent = L.color; $("l_stroke").textContent = L.stroke; $("strokeAuto").textContent = L.strokeAuto; $("strokeColorAuto").textContent = L.strokeAutoColor; $("l_font").textContent = L.font; $("l_tfx").textContent = L.tfx; $("fontPick").textContent = L.fontPick; $("fontNote").textContent = L.fontNote; $("l_pos").textContent = L.pos;
     $("l_bg").textContent = L.bg; $("bgNote").textContent = L.bgNote; $("h_img").textContent = L.img; $("imgNote").textContent = L.imgNote;
     $("l_colors").textContent = L.colors; $("l_detail").textContent = L.detail; $("l_speckle").textContent = L.speckle; $("l_denoise").textContent = L.denoise; $("l_tol").textContent = L.tol;
-    $("h_fmt").textContent = L.fmt; $("fmtNote").textContent = L.fmtNote; $("sendBtn").textContent = L.send; $("text").value = S.text;
+    $("h_fmt").textContent = L.fmt; $("sendBtn").textContent = L.send; $("text").value = S.text;
     const chips = $("chips"); chips.innerHTML = "";
     SF.EFFECTS.forEach(e => { const b = document.createElement("button"); b.className = "chip" + (e.key === S.effect ? " on" : ""); b.textContent = lang === "fa" ? e.fa : e.en;
       b.onclick = () => { S.effect = e.key; if (S.fx2 === e.key) S.fx2 = ""; if (S.fx3 === e.key) S.fx3 = ""; haptic(); build(); refresh(); }; chips.appendChild(b); });
@@ -462,7 +657,13 @@ const SF = (function () {
       b.onclick = () => { S.text_color = c; haptic(); build(); refresh(); }; sw.appendChild(b); });
     const tf = $("tfx"); tf.innerHTML = "";
     SF.TEXT_FX.forEach(k => { const b = document.createElement("button"); b.className = "chip" + (S.text_fx === k ? " on" : ""); b.textContent = SF.TEXT_FX_LABELS[k][lang === "fa" ? 1 : 0];
-      b.onclick = () => { S.text_fx = k; haptic(); build(); refresh(); }; tf.appendChild(b); });
+      b.onclick = () => { S.text_fx = k; if (k === "sync") { S.text_fx2 = ""; S.text_fx3 = ""; } normSlots(); haptic(); build(); refresh(); }; tf.appendChild(b); });
+    for (const slot of [2, 3]) {
+      const sel = $("tfx" + slot), key = "text_fx" + slot; sel.innerHTML = "";
+      const add = (v, t) => { const o = document.createElement("option"); o.value = v; o.textContent = t; if (S[key] === v) o.selected = true; sel.appendChild(o); };
+      add("", "— " + L.none); SF.textChoices(S, slot).forEach(k => add(k, SF.TEXT_FX_LABELS[k][lang === "fa" ? 1 : 0]));
+      sel.onchange = () => { S[key] = sel.value; normSlots(); haptic(); build(); refresh(); };
+    }
     buildFonts();
     buildSeg("bg", [false, true], () => S.bg, v => { S.bg = v; refresh(true); }, v => v ? L.on : L.off);
     buildSeg("i_colors", [4, 6, 8, 12], () => S.img.colors, v => { S.img.colors = v; persist(); }, v => v);
@@ -470,17 +671,15 @@ const SF = (function () {
     buildSeg("i_speckle", [4, 12, 40], () => S.img.speckle, v => { S.img.speckle = v; persist(); }, v => v);
     buildSeg("i_denoise", [0, 3, 5], () => S.img.denoise, v => { S.img.denoise = v; persist(); }, v => v === 0 ? L.off2 : v);
     buildSeg("i_tol", [18, 36, 60], () => S.img.bg_tol, v => { S.img.bg_tol = v; refresh(S.bg); }, v => L.tols[v]);
-    buildSeg("fmt", ["webm", "tgs"], () => S.fmt, v => { S.fmt = v; persist(); }, v => v.toUpperCase());
+    const fmtNote = () => { $("fmtNote").textContent = L.fmtNotes[S.fmt] + " " + L.fmtNote; };
+    buildSeg("fmt", ["webm", "tgs", "gif", "webp"], () => S.fmt, v => { S.fmt = v; persist(); fmtNote(); }, v => v === "webp" ? "WebP" : v.toUpperCase()); fmtNote();
+    buildMove(); buildLayers();
     posNote();
   }
 
   $("text").addEventListener("input", e => { S.text = e.target.value.slice(0, 28); refresh(); });
-  $("file").addEventListener("change", e => {
-    const f = e.target.files && e.target.files[0]; if (!f) return;
-    const url = URL.createObjectURL(f), im = new Image();
-    im.onload = () => { srcImg = im; refresh(true); URL.revokeObjectURL(url); }; im.src = url;
-  });
-  $("demoBtn").onclick = () => { srcImg = null; refresh(true); };
+  $("file").addEventListener("change", e => { if (e.target.files && e.target.files.length) addFiles(e.target.files); e.target.value = ""; });
+  $("demoBtn").onclick = () => { layersL.length = 0; selL = -1; moveMode = "text"; buildMove(); buildLayers(); refresh(true); };
   $("langBtn").onclick = () => { lang = lang === "fa" ? "en" : "fa"; build(); updateMain(); };
 
   // ---------- manual size / colour / outline controls ----------
@@ -546,13 +745,16 @@ const SF = (function () {
   function payload() {
     const p = { v: 1, effect: S.effect, fx2: S.fx2 || null, fx3: S.fx3 || null, speed: S.speed, intensity: S.intensity, outline: S.outline,
       text: S.text.trim(), text_pos: S.text_pos, text_x: S.text_x, text_y: S.text_y, text_size: S.text_size, text_color: S.text_color,
-      bg: !!S.bg, fmt: S.fmt, img: S.img, text_fx: S.text_fx, text_px: S.text_px, stroke_w: S.stroke_w, stroke_color: S.stroke_color };
+      bg: !!S.bg, fmt: S.fmt, img: S.img, text_fx: S.text_fx, text_fx2: S.text_fx2 || null, text_fx3: S.text_fx3 || null, text_px: S.text_px, stroke_w: S.stroke_w, stroke_color: S.stroke_color };
+    if (layersL.length > 1 || (layersL.length === 1 && !layersL[0].auto))     // where each picture sits, bottom -> top
+      p.layers = layersL.map(l => ({ h: l.h, x: Math.round(l.x * 10) / 10, y: Math.round(l.y * 10) / 10, s: Math.round(l.s * 1000) / 1000 }));
     if (S.font) p.font = S.font;
     if (S.font_phone) p.font_phone = S.font_phone;
     return JSON.stringify(p);
   }
   function send() {
     const data = payload();
+    if (data.length > 4000) { alert("Too much data for Telegram (" + data.length + " bytes). Remove a picture or shorten the text."); return; }
     if (tg) { tg.sendData(data); } else { alert(data); }
   }
   function updateMain() { if (tg) { tg.MainButton.setText(STR[lang].send); tg.MainButton.show(); } }
